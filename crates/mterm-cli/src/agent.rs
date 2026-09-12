@@ -424,22 +424,27 @@ mod tests {
             let _ = serve_once(listener, sp, Arc::new(backend));
         });
 
-        let mut stream = UnixStream::connect(&sock).unwrap();
-        send_json(&mut stream, &json!({"cmd": "ask", "text": "tes dong"})).unwrap();
+        // client dalam blok; koneksi ditutup sebelum join supaya server
+        // melihat EOF (read_line) dan thread server bisa selesai.
+        let (result, s) = {
+            let mut stream = UnixStream::connect(&sock).unwrap();
+            send_json(&mut stream, &json!({"cmd": "ask", "text": "tes dong"})).unwrap();
 
-        let mut result = String::new();
-        let reader = BufReader::new(stream.try_clone().unwrap());
-        for line in reader.lines().map_while(Result::ok) {
-            let v: Value = serde_json::from_str(&line).unwrap();
-            match v["type"].as_str().unwrap_or_default() {
-                "delta" => result.push_str(v["text"].as_str().unwrap_or("")),
-                "done" => break,
-                _ => {}
+            let mut result = String::new();
+            let reader = BufReader::new(stream.try_clone().unwrap());
+            for line in reader.lines().map_while(Result::ok) {
+                let v: Value = serde_json::from_str(&line).unwrap();
+                match v["type"].as_str().unwrap_or_default() {
+                    "delta" => result.push_str(v["text"].as_str().unwrap_or("")),
+                    "done" => break,
+                    _ => {}
+                }
             }
-        }
+            let s: Session =
+                serde_json::from_str(&fs::read_to_string(&sess_path).unwrap()).unwrap();
+            (result, s)
+        };
         assert_eq!(result, "halo dunia", "delta harus terkumpul jadi satu");
-
-        let s: Session = serde_json::from_str(&fs::read_to_string(&sess_path).unwrap()).unwrap();
         assert_eq!(s.messages.len(), 2, "user + assistant");
         assert_eq!(s.messages[0].role, "user");
         assert_eq!(s.messages[0].content, "tes dong");
