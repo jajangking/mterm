@@ -246,9 +246,9 @@ impl Terminal {
         }
         let mut attrs = self.cursor.attrs;
         attrs.hyperlink = self.current_hyperlink;
-        self.cursor.x += self
-            .grid
-            .set(self.cursor.x, self.cursor.y, Cell::new(b as char, attrs));
+        let (x, y) = (self.cursor.x, self.cursor.y);
+        self.cursor.x += self.grid.set(x, y, Cell::new(b as char, attrs));
+        self.mark_dirty(x, y);
     }
 
     /// Char non-ASCII (>= 100 hex) via vte — beat sudah di `boundary`; di sini
@@ -265,15 +265,17 @@ impl Terminal {
         }
         let mut attrs = self.cursor.attrs;
         attrs.hyperlink = self.current_hyperlink;
-        self.cursor.x += self
-            .grid
-            .set(self.cursor.x, self.cursor.y, Cell::new(ch, attrs));
+        let (x, y) = (self.cursor.x, self.cursor.y);
+        self.cursor.x += self.grid.set(x, y, Cell::new(ch, attrs));
+        self.mark_dirty(x, y);
     }
 
     fn maybe_scroll(&mut self) {
         if self.cursor.y >= self.rows() {
             self.cursor.y = self.rows() - 1;
             self.grid.scroll_up(1);
+            self.mark_dirty(0, 0);
+            self.mark_dirty(self.cols().saturating_sub(1), self.rows().saturating_sub(1));
         }
     }
 
@@ -284,11 +286,15 @@ impl Terminal {
         self.cursor.x = self.cursor.x.min(cols.saturating_sub(1));
         self.cursor.y = self.cursor.y.min(rows.saturating_sub(1));
         self.scroll_offset = self.scroll_offset.min(self.grid.scrollback_len());
+        self.mark_dirty(0, 0);
+        self.mark_dirty(cols.saturating_sub(1), rows.saturating_sub(1));
     }
 
     fn enter_alt(&mut self, cols: usize, rows: usize) {
         self.scroll_offset = 0; // alt screen tak punya scrollback
         self.alt_screen = Some(std::mem::replace(&mut self.grid, Grid::new(cols, rows, 0)));
+        self.mark_dirty(0, 0);
+        self.mark_dirty(cols.saturating_sub(1), rows.saturating_sub(1));
     }
 
     pub fn set_title(&mut self, title: String) {
@@ -672,6 +678,8 @@ impl Perform for Terminal {
                     for y in self.cursor.y..self.rows() {
                         self.grid.clear_line(y);
                     }
+                    self.mark_dirty(self.cursor.x, self.cursor.y);
+                    self.mark_dirty(self.cols().saturating_sub(1), self.rows().saturating_sub(1));
                 }
                 2 => {
                     for y in 0..self.rows() {
@@ -679,12 +687,17 @@ impl Perform for Terminal {
                     }
                     self.cursor.x = 0;
                     self.cursor.y = 0;
+                    self.mark_dirty(0, 0);
+                    self.mark_dirty(self.cols().saturating_sub(1), self.rows().saturating_sub(1));
                 }
                 _ => {}
             },
-            'K' => self
-                .grid
-                .clear_range(self.cursor.y, self.cursor.x, self.cols()),
+            'K' => {
+                self.grid
+                    .clear_range(self.cursor.y, self.cursor.x, self.cols());
+                self.mark_dirty(self.cursor.x, self.cursor.y);
+                self.mark_dirty(self.cols().saturating_sub(1), self.cursor.y);
+            }
             'm' => {
                 let list = param_list(params);
                 let mut i = 0usize;

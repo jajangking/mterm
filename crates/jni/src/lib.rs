@@ -194,10 +194,12 @@ fn dirty(handle: u64) -> bool {
     let Some(shared) = get(handle) else {
         return false;
     };
-    let Ok(t) = shared.lock() else {
+    let Ok(mut t) = shared.lock() else {
         return false;
     };
-    t.dirty_rect.is_some()
+    // konsumtif: tiap pembacaan mereset dirty_rect → renderer switch ke frame
+    // baru hanya saat ada perubahan berikutnya
+    t.dirty_rect.take().is_some()
 }
 
 /// `take_event(handle, out) -> n` — pop event terminal (polling).
@@ -910,6 +912,31 @@ mod tests {
         assert_eq!(ch, 'R' as u32);
         assert_eq!((fg >> 24) & 0xFF, 0xFF, "alpha opak untuk warna pasti");
         assert!(fg != 0, "fg tidak nol saat warna eksplisit");
+        destroy(h);
+    }
+
+    #[test]
+    fn fast_path_marks_and_consumes_dirty() {
+        // fast path (ASCII murni, tanpa ESC) harus menandai dirty_rect…
+        let h = init_term(80, 24);
+        write(h, b"BANNER-MTERM\n");
+        assert!(dirty(h), "feed ASCII memicu dirty flag");
+
+        // …dan konsumsi berikutnya mereset: tanpa feed baru, dirty = false.
+        assert!(!dirty(h), "dirty hanya bertahan satu kali pembacaan");
+
+        // jalur vte (ESC) juga ditandai.
+        write(h, b"\x1b[31mR");
+        assert!(dirty(h));
+        assert!(!dirty(h));
+
+        // clear (CSI J2 + K) ikut menandai.
+        write(h, b"\x1b[2J");
+        assert!(dirty(h));
+        assert!(!dirty(h));
+        write(h, b"AB\x1b[K");
+        assert!(dirty(h));
+        assert!(!dirty(h));
         destroy(h);
     }
 
