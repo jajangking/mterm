@@ -6,6 +6,7 @@
 //! - `parser`: adapter di atas crate `vte` yang memetakan byte → tindakan
 
 pub mod grid;
+pub mod kitty;
 pub mod mouse;
 pub mod terminal;
 

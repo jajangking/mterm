@@ -149,6 +149,38 @@ fn take_event(handle: u64, out: &mut [u8]) -> i32 {
         TerminalEvent::Bell => (2, Vec::new()),
         TerminalEvent::Mouse(on) => (3, vec![u8::from(on)]),
         TerminalEvent::Hyperlink(_) => return 0,
+        // type 4 = KittyImage: id u32 LE, format u8, w u32 LE, h u32 LE, data...
+        TerminalEvent::KittyImage {
+            id,
+            format,
+            width_px,
+            height_px,
+            data,
+        } => {
+            let mut p = Vec::with_capacity(17 + data.len());
+            p.extend_from_slice(&id.to_le_bytes());
+            p.push(format);
+            p.extend_from_slice(&width_px.to_le_bytes());
+            p.extend_from_slice(&height_px.to_le_bytes());
+            p.extend_from_slice(&data);
+            (4, p)
+        }
+        // type 5 = KittyPlaced: id, x, y, cols, rows (u32 LE)
+        TerminalEvent::KittyPlaced {
+            id,
+            x,
+            y,
+            cols,
+            rows,
+        } => {
+            let mut p = Vec::with_capacity(20);
+            for v in [id, x as u32, y as u32, cols as u32, rows as u32] {
+                p.extend_from_slice(&v.to_le_bytes());
+            }
+            (5, p)
+        }
+        // type 6 = KittyDeleted: id u32 LE
+        TerminalEvent::KittyDeleted { id } => (6, id.to_le_bytes().to_vec()),
     };
     let need = 8 + payload.len();
     if need > out.len() {

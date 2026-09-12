@@ -249,10 +249,12 @@ fn cap_chars(s: String, max: usize) -> String {
 /// Baca file (relatif workspace), potong kalau terlalu besar.
 fn read_file_ctx(ws: &Path, rel: &str) -> io::Result<(String, String)> {
     let p = ws.join(rel);
-    let content = fs::read_to_string(&p).map_err(|e| {
-        io::Error::new(e.kind(), format!("tidak bisa baca {}: {e}", p.display()))
-    })?;
-    Ok((p.display().to_string(), cap_chars(content, MAX_CONTEXT_CHARS)))
+    let content = fs::read_to_string(&p)
+        .map_err(|e| io::Error::new(e.kind(), format!("tidak bisa baca {}: {e}", p.display())))?;
+    Ok((
+        p.display().to_string(),
+        cap_chars(content, MAX_CONTEXT_CHARS),
+    ))
 }
 
 fn git_captured(ws: &Path, args: &[&str]) -> String {
@@ -364,7 +366,10 @@ fn handle_conn(
                 let (text, sys_note) = match slash_apply(&raw, &sess.workspace) {
                     Ok(x) => x,
                     Err(e) => {
-                        send_json(&mut writer, &json!({"type": "done", "error": e.to_string()}))?;
+                        send_json(
+                            &mut writer,
+                            &json!({"type": "done", "error": e.to_string()}),
+                        )?;
                         continue;
                     }
                 };
@@ -818,7 +823,10 @@ mod tests {
     #[test]
     fn slash_parse_recognizes_commands() {
         assert_eq!(slash_parse("/ask halo dunia"), Some(("/ask", "halo dunia")));
-        assert_eq!(slash_parse("/explain src/a.rs"), Some(("/explain", "src/a.rs")));
+        assert_eq!(
+            slash_parse("/explain src/a.rs"),
+            Some(("/explain", "src/a.rs"))
+        );
         assert_eq!(slash_parse("/commit"), Some(("/commit", "")));
         assert_eq!(slash_parse("halo biasa"), None);
         assert_eq!(slash_parse(""), None);
@@ -832,7 +840,10 @@ mod tests {
 
         let (final_text, sys) = slash_apply("/explain src/a.rs", dir.to_str().unwrap()).unwrap();
         assert!(final_text.contains("Jelaskan kode di"));
-        assert!(sys.contains("fn halo() -> u32 { 1 }"), "isi file masuk sys_note");
+        assert!(
+            sys.contains("fn halo() -> u32 { 1 }"),
+            "isi file masuk sys_note"
+        );
         assert!(sys.contains("src/a.rs"));
 
         let (t, _) = slash_apply("/ask 1+1?", dir.to_str().unwrap()).unwrap();

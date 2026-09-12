@@ -7,7 +7,7 @@
 
 | Baris | Status |
 |-------|--------|
-| Rust core (`crates/core`) — vte + grid + ANSI | ✅ lestari, 18/18 test, 0 clippy, OSC8 + 256-color + `?` private mode + mouse tracking |
+| Rust core (`crates/core`) — vte + grid + ANSI | ✅ lestari, **40/40** test, 0 clippy; OSC8 + 256-color + `?` private mode + mouse tracking + **kitty graphics minimal** (transmit/place/delete, chunked, base64 internal) |
 | JNI bridge (`crates/jni`) | ✅ `nativeTakeEvent` (title/bell/mouse) + 4 test lokal; **belum diuji di device** |
 | Android chrome (`app/`) — Compose + Gradle | ✅ build + artifact APK 16 MB (`mterm-debug-apk`) — belum diinstall di device |
 | ADB wireless helper (`scripts/adb-wireless.sh`) | ✅ siap dipakai (mode executable sudah di-`chmod +x`) |

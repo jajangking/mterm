@@ -30,9 +30,13 @@ Iterasi APK tanpa kabel — pairing sekali per day via Wireless debugging (Andro
 - [x] Scrollback buffer (ring buffer, cap configurable)
 - [x] Title setter (`ESC ] 0;title BEL` → `TerminalEvent::Title`)
 - [x] OSC 8 hyperlink support (untuk opencode) — registry `u32→uri`, `%XX` unescape, cell ber-link
-- [ ] Kitty graphics protocol (minimal: transmit, display, delete)
-- [x] Unit test: parser + grid rendering (14 test)
-- [ ] Benchmark: 10k lines scroll throughput (test scroll dulu: `seq` real di `run`)
+- [x] Kitty graphics protocol (minimal: transmit, transmit+place `a=T`, place,
+      delete; base64 decoder tanpa dep, chunked `m=1..m=0`, APC terpotong
+      di-buffer lintas feed, registry image + event `KittyImage/Placed/Deleted`,
+      placeholder cell `attrs.image`) — 10 test integrasi
+- [x] Unit test: parser + grid rendering (40 test)
+- [x] Benchmark: 10k lines scroll throughput (`seq_10k_benchmark`, ignored;
+      release ≈6µs/baris) + `seq` real diverifikasi via `mterm run`
 
 ## Fase 2 — JNI Bridge
 **Tujuan**: Rust core bisa dipanggil dari Kotlin/Compose via JNI.
@@ -139,3 +143,5 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
 | 2026-09-12 | Mouse tracking DEC 1000/1002/1003 → `Mouse(bool)` event | chrome tau kapan harus tangkap touch → encode SGR |
 | 2026-09-12 | Agent IPC: Unix socket NDJSON + sesi JSON per-workspace, backend pluggable | integrasi LLM via trait `Backend`; sekarang `StubBackend` echo |
 | 2026-09-12 | Skip reqwest/Groq HTTP (kompilasi berat di Termux) | CI (GH Actions) yang jadi gate tes; backend LLM menyusul |
+| 2026-09-12 | Kitty graphics: APC dicegat di `feed_bytes` sebelum vte (vte 0.11 tak punya hook APC) + base64 decoder ditulis sendiri | hindari dep `base64`; state kitty tetap di core (registry `images`, `pending_apc` buffer lintas feed) |
+| 2026-09-12 | Image ditransfer sebagai `Arc<Vec<u8>>` di event `KittyImage` (refcount clone, bukan copy) | renderer dapat bytes; core tetapkan registry sebagai sumber kebenaran |

@@ -12,6 +12,8 @@ pub struct CellAttrs {
     pub bg: Color,
     /// ID hyperlink OSC 8 di registry terminal; `None` = bukan link.
     pub hyperlink: Option<u32>,
+    /// ID kitty image yang menutupi cell; `None` = teks biasa.
+    pub image: Option<u32>,
 }
 
 impl CellAttrs {
@@ -169,6 +171,15 @@ impl Grid {
 
     pub fn line(&self, y: usize) -> &Line {
         &self.lines[y.min(self.rows.saturating_sub(1))]
+    }
+
+    /// Akses cell mutable; `None` kalau x di luar kolom (y di-clamp).
+    pub fn cell_at_mut(&mut self, x: usize, y: usize) -> Option<&mut Cell> {
+        if x >= self.cols {
+            return None;
+        }
+        let line = self.line_mut(y.min(self.rows.saturating_sub(1)));
+        Some(&mut line.cells[x])
     }
 
     fn line_mut(&mut self, y: usize) -> &mut Line {

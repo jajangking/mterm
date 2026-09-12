@@ -1,7 +1,9 @@
 //! Terminal state machine: menggerakkan `Grid` dari event VT.
 
 use crate::grid::{Cell, CellAttrs, Color, Grid};
+use crate::kitty::{KittyAction, KittyCommand, KittyFormat, KittyImage, PendingChunk};
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 use vte::{Params, Perform};
 
 #[derive(Debug, Clone)]
@@ -44,6 +46,26 @@ pub enum TerminalEvent {
     Bell,
     Hyperlink(Option<String>),
     Mouse(bool),
+    /// Gambar kitty selesai ditransmisikan (data penuh untuk renderer).
+    KittyImage {
+        id: u32,
+        format: u8,
+        width_px: u32,
+        height_px: u32,
+        data: Arc<Vec<u8>>,
+    },
+    /// Gambar ditempatkan di grid (cell `attrs.image = id`).
+    KittyPlaced {
+        id: u32,
+        x: usize,
+        y: usize,
+        cols: usize,
+        rows: usize,
+    },
+    /// Gambar dihapus dari registry.
+    KittyDeleted {
+        id: u32,
+    },
 }
 
 /// Implementasi `vte::Perform`: byte dari PTY → aksi ke grid.
@@ -61,6 +83,11 @@ pub struct Terminal {
     next_hyperlink: u32,
     pub mouse_tracking: bool,
     pub sgr_mouse: bool,
+    /// Registry kitty image: id → gambar.
+    pub images: HashMap<u32, crate::kitty::KittyImage>,
+    pub next_image: u32,
+    pub pending_chunk: Option<crate::kitty::PendingChunk>,
+    pending_apc: Option<Vec<u8>>,
 }
 
 impl Terminal {
@@ -93,6 +120,10 @@ impl Terminal {
             next_hyperlink: 0,
             mouse_tracking: false,
             sgr_mouse: false,
+            images: HashMap::new(),
+            next_image: 0,
+            pending_chunk: None,
+            pending_apc: None,
         }
     }
 
@@ -210,8 +241,33 @@ impl Terminal {
     /// Feed byte mentah (output PTY/socket) → parser + engine.
     /// Fast path: run ASCII printable/CR/LF ditulis langsung tanpa vte;
     /// byte lain (ESC, control, utf8) → vte untuk sisa chunk.
+    /// Kitc graphics APC (`ESC _ ... ESC \`) dicegat sebelum vte.
     pub fn feed_bytes(&mut self, mut bytes: &[u8]) {
+        // lanjutkan APC yang terpotong dari feed sebelumnya
+        if let Some(mut buf) = self.pending_apc.take() {
+            buf.extend_from_slice(bytes);
+            if let Some(len) = Self::find_apc_end(&buf) {
+                self.apply_apc(&buf[3..len - 2]);
+                if buf.len() > len {
+                    let rest = buf[len..].to_vec();
+                    self.feed_bytes(&rest);
+                }
+                return;
+            }
+            self.pending_apc = Some(buf);
+            return;
+        }
         while !bytes.is_empty() {
+            if bytes[0] == 0x1b && bytes.get(1) == Some(&b'_') {
+                if let Some(len) = Self::find_apc_end(bytes) {
+                    self.apply_apc(&bytes[3..len - 2]);
+                    bytes = &bytes[len..];
+                    continue;
+                }
+                // APC belum lengkap → buffer, tunggu feed berikutnya
+                self.pending_apc = Some(bytes.to_vec());
+                return;
+            }
             if Self::fast_byte(bytes[0]) {
                 let mut n = 1;
                 while n < bytes.len() && Self::fast_byte(bytes[n]) {
@@ -225,6 +281,241 @@ impl Terminal {
                 return;
             }
         }
+    }
+
+    /// Cari terminator APC (`ESC \`); return index setelah terminator.
+    fn find_apc_end(bytes: &[u8]) -> Option<usize> {
+        if bytes.len() >= 3 && bytes[0] == 0x1b && bytes[1] == b'_' {
+            // index mencari `ESC \`
+            let mut i = 2;
+            while i + 1 < bytes.len() {
+                if bytes[i] == 0x1b && bytes[i + 1] == b'\\' {
+                    return Some(i + 2);
+                }
+                i += 1;
+            }
+        }
+        None
+    }
+
+    /// Proses APC (dari content antara `ESC _` dan `ESC \`).
+    fn apply_apc(&mut self, content: &[u8]) {
+        let cmd = crate::kitty::parse_apc(content);
+        match cmd.action {
+            KittyAction::Transmit | KittyAction::TransmitAndPlace => {
+                self.kitty_transmit(cmd);
+            }
+            KittyAction::Place => self.kitty_place(&cmd),
+            KittyAction::Delete => self.kitty_delete(&cmd),
+            KittyAction::Query | KittyAction::Ignore => {}
+        }
+    }
+
+    /// Transmit (chunked): tumpuk payload, lengkapi di `m=0`, simpan registry.
+    fn kitty_transmit(&mut self, cmd: KittyCommand) {
+        // id: eksplisit `q=` > id chunk yang masih kelanjutan > auto-increment
+        let continuation = self.pending_chunk.as_ref().map(|pc| pc.image_id);
+        let id = cmd.image_id.or(continuation).unwrap_or_else(|| {
+            self.next_image = self.next_image.wrapping_add(1);
+            self.next_image
+        });
+        let action = cmd.action;
+        let done = cmd.more <= 0;
+        // salin field Copy biar setelah `payload` dipindah masih bisa dipakai
+        let place_x = cmd.x;
+        let place_y = cmd.y;
+        let cols = cmd.cols;
+        let rows = cmd.rows;
+        let fmt = cmd.format;
+        let w = cmd.width_px;
+        let h = cmd.height_px;
+
+        let insert_done = |this: &mut Self, cfg: crate::kitty::Completed| {
+            this.images.insert(
+                cfg.id,
+                KittyImage {
+                    format: cfg.format,
+                    width_px: cfg.width_px,
+                    height_px: cfg.height_px,
+                    data: Arc::new(cfg.bytes),
+                },
+            );
+            if let Some(img) = this.images.get(&cfg.id) {
+                this.events.push_back(TerminalEvent::KittyImage {
+                    id: cfg.id,
+                    format: format_tag(cfg.format),
+                    width_px: cfg.width_px,
+                    height_px: cfg.height_px,
+                    data: img.data.clone(),
+                });
+            }
+        };
+
+        match self.pending_chunk.take() {
+            Some(mut pc) => {
+                if pc.image_id != id {
+                    // id beda: chunk lama tidak selesai → buang
+                    pc = PendingChunk {
+                        bytes: Vec::new(),
+                        ..pc
+                    };
+                }
+                pc.bytes.extend_from_slice(&cmd.payload);
+                if done {
+                    let format = if fmt != KittyFormat::Unknown {
+                        fmt
+                    } else {
+                        pc.format
+                    };
+                    let width_px = if w > 0 { w } else { pc.width_px };
+                    let height_px = if h > 0 { h } else { pc.height_px };
+                    insert_done(
+                        self,
+                        crate::kitty::Completed {
+                            id,
+                            format,
+                            width_px,
+                            height_px,
+                            bytes: std::mem::take(&mut pc.bytes),
+                        },
+                    );
+                } else {
+                    self.pending_chunk = Some(pc);
+                }
+            }
+            None => {
+                if done {
+                    let format = if fmt != KittyFormat::Unknown {
+                        fmt
+                    } else {
+                        KittyFormat::Unknown
+                    };
+                    let width_px = if w > 0 { w } else { 0 };
+                    let height_px = if h > 0 { h } else { 0 };
+                    insert_done(
+                        self,
+                        crate::kitty::Completed {
+                            id,
+                            format,
+                            width_px,
+                            height_px,
+                            bytes: cmd.payload,
+                        },
+                    );
+                } else {
+                    self.pending_chunk = Some(PendingChunk {
+                        bytes: cmd.payload,
+                        format: fmt,
+                        width_px: w,
+                        height_px: h,
+                        image_id: id,
+                    });
+                }
+            }
+        }
+        if action == KittyAction::TransmitAndPlace {
+            self.kitty_place_at(id, place_x, place_y, cols, rows);
+        }
+    }
+
+    /// Place image `q=` (atau yang baru saja) di X/Y (1-based) ukuran c×r.
+    fn kitty_place(&mut self, cmd: &KittyCommand) {
+        let id = cmd.image_id.unwrap_or(self.next_image);
+        self.kitty_place_at(id, cmd.x, cmd.y, cmd.cols, cmd.rows);
+    }
+
+    fn kitty_place_at(
+        &mut self,
+        id: u32,
+        ix: Option<u32>,
+        iy: Option<u32>,
+        icols: u32,
+        irows: u32,
+    ) {
+        if !self.images.contains_key(&id) {
+            return;
+        }
+        let (x, y) = match (ix, iy) {
+            (Some(x), Some(y)) => (
+                (x as usize)
+                    .saturating_sub(1)
+                    .min(self.cols().saturating_sub(1)),
+                (y as usize)
+                    .saturating_sub(1)
+                    .min(self.rows().saturating_sub(1)),
+            ),
+            _ => (
+                self.cursor.x,
+                self.cursor.y.min(self.rows().saturating_sub(1)),
+            ),
+        };
+        let cols = (icols as usize).max(1).min(self.cols() - x);
+        let rows = (irows as usize).max(1).min(self.rows() - y);
+        let mut placed = Vec::new();
+        for yy in y..y + rows {
+            for xx in x..x + cols {
+                if let Some(cell) = self.grid.cell_at_mut(xx, yy) {
+                    cell.ch = ' ';
+                    cell.attrs.image = Some(id);
+                    cell.width = 1;
+                    placed.push((xx, yy));
+                }
+            }
+        }
+        if !placed.is_empty() {
+            self.mark_dirty_range(x, y, cols, rows);
+            self.events.push_back(TerminalEvent::KittyPlaced {
+                id,
+                x,
+                y,
+                cols,
+                rows,
+            });
+        }
+    }
+
+    /// Delete image: `q=id`, atau semua kalau `i=-1` / tanpa id.
+    fn kitty_delete(&mut self, cmd: &KittyCommand) {
+        let _ = cmd.image_no;
+        match cmd.image_id {
+            Some(id) => {
+                if self.images.remove(&id).is_some() {
+                    // bersihkan cell yang masih nunjuk id ini
+                    self.clear_image_cells(id);
+                    self.events.push_back(TerminalEvent::KittyDeleted { id });
+                }
+            }
+            None => {
+                for id in self.images.keys().copied().collect::<Vec<_>>() {
+                    self.clear_image_cells(id);
+                    self.events.push_back(TerminalEvent::KittyDeleted { id });
+                }
+                self.images.clear();
+            }
+        }
+        self.pending_chunk = None;
+    }
+
+    fn clear_image_cells(&mut self, id: u32) {
+        for y in 0..self.rows() {
+            for x in 0..self.cols() {
+                if let Some(cell) = self.grid.cell_at_mut(x, y) {
+                    if cell.attrs.image == Some(id) {
+                        cell.attrs.image = None;
+                        cell.ch = ' ';
+                    }
+                }
+            }
+        }
+    }
+
+    fn mark_dirty_range(&mut self, x: usize, y: usize, cols: usize, rows: usize) {
+        let x1 = x.min(self.cols());
+        let y1 = y.min(self.rows());
+        let x2 = (x + cols).min(self.cols());
+        let y2 = (y + rows).min(self.rows());
+        self.mark_dirty(x1, y1);
+        self.mark_dirty(x2.saturating_sub(1), y2.saturating_sub(1));
     }
 
     fn put_fast(&mut self, run: &[u8]) {
@@ -251,6 +542,21 @@ impl Terminal {
 
     pub fn has_event(&self) -> bool {
         !self.events.is_empty()
+    }
+}
+
+/// Tag format kitty ke angka kecil untuk JNI/serialization.
+fn format_tag(f: KittyFormat) -> u8 {
+    match f {
+        KittyFormat::Png => 1,
+        KittyFormat::Jpeg => 2,
+        KittyFormat::Gif => 3,
+        KittyFormat::Webp => 4,
+        KittyFormat::Svg => 5,
+        KittyFormat::Avif => 6,
+        KittyFormat::Tiff => 7,
+        KittyFormat::Rgba => 8,
+        KittyFormat::Unknown => 0,
     }
 }
 
@@ -826,5 +1132,194 @@ mod tests {
         let elapsed = start.elapsed();
         let per_line = elapsed.as_secs_f64() / 10_000.0 * 1e6;
         println!("10k lines: {:?} ({:.0} us/baris)", elapsed, per_line);
+    }
+
+    // ── kitty graphics integration ────────────────────────────────────────
+
+    fn fixture_png() -> Vec<u8> {
+        vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]
+    }
+
+    fn b64(png: &[u8]) -> String {
+        // encoder utilitas kecil untuk test
+        const ALPHA: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for chunk in png.chunks(3) {
+            let b = [
+                chunk[0],
+                *chunk.get(1).unwrap_or(&0),
+                *chunk.get(2).unwrap_or(&0),
+            ];
+            let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
+            out.push(ALPHA[(n >> 18) as usize] as char);
+            out.push(ALPHA[((n >> 12) & 63) as usize] as char);
+            if chunk.len() >= 2 {
+                out.push(ALPHA[((n >> 6) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+            if chunk.len() >= 3 {
+                out.push(ALPHA[(n & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn kitty_transmit_then_place() {
+        let mut t = Terminal::new(TerminalConfig::default());
+        let png = fixture_png();
+        // transmit sekali jadi (m=0 default)
+        let apc = format!("\x1b_Ga=t,t=f,f=100,s=10,v=10,m=0;{}\x1b\\", b64(&png));
+        t.feed_str(&apc);
+        let mut got_image = None;
+        let mut got_placed = None;
+        while let Some(ev) = t.take_event() {
+            match ev {
+                TerminalEvent::KittyImage {
+                    id,
+                    format,
+                    width_px,
+                    height_px,
+                    data,
+                } => {
+                    got_image = Some((id, format, width_px, height_px, data));
+                }
+                TerminalEvent::KittyPlaced {
+                    id,
+                    x,
+                    y,
+                    cols,
+                    rows,
+                } => {
+                    got_placed = Some((id, x, y, cols, rows));
+                }
+                _ => {}
+            }
+        }
+        let (id, format, w, h, data) = got_image.expect("image event");
+        assert_eq!(format, 1, "png");
+        assert_eq!((w, h), (10, 10));
+        assert_eq!(*data, png);
+        assert!(got_placed.is_none(), "a=t tak place");
+        assert!(t.images.contains_key(&id));
+
+        // place di X=2,Y=1 ukuran 2x1
+        let apc = format!("\x1b_Ga=p,q={id},X=2,Y=1,c=2,r=1\x1b\\");
+        t.feed_str(&apc);
+        let ev = t.take_event().expect("placed event");
+        match ev {
+            TerminalEvent::KittyPlaced {
+                id: pid,
+                x,
+                y,
+                cols,
+                rows,
+            } => {
+                assert_eq!((pid, x, y, cols, rows), (id, 1, 0, 2, 1));
+            }
+            _ => panic!("wrong event: {ev:?}"),
+        }
+        // cell (1,0) dan (2,0) punya image attr; (3,0) tidak
+        assert_eq!(t.grid.line(0).cells[1].attrs.image, Some(id));
+        assert_eq!(t.grid.line(0).cells[2].attrs.image, Some(id));
+        assert_eq!(t.grid.line(0).cells[3].attrs.image, None);
+    }
+
+    #[test]
+    fn kitty_transmit_and_place_t() {
+        let mut t = Terminal::new(TerminalConfig::default());
+        let png = fixture_png();
+        let apc = format!("\x1b_Ga=T,f=100,s=8,v=8,m=0;{}\x1b\\", b64(&png));
+        t.feed_str(&apc);
+        let mut placed = false;
+        while let Some(ev) = t.take_event() {
+            if matches!(ev, TerminalEvent::KittyPlaced { .. }) {
+                placed = true;
+            }
+        }
+        assert!(placed, "a=T langsung place di cursor");
+        assert_eq!(t.grid.line(0).cells[0].attrs.image, Some(1));
+    }
+
+    #[test]
+    fn kitty_chunked_transmit_across_feeds() {
+        let mut t = Terminal::new(TerminalConfig::default());
+        let png = fixture_png();
+        let full = b64(&png);
+        let (mid, tail) = full.split_at(full.len() / 2);
+        let c1 = format!("\x1b_Ga=t,f=100,m=1;{}\x1b\\", mid);
+        let c2 = format!("\x1b_Gm=2;{}\x1b\\", "!".repeat(20)); // b64 invalid → kosong
+        let c3 = format!("\x1b_Gm=0;{}\x1b\\", tail);
+        t.feed_str(&c1);
+        assert!(t.pending_chunk.is_some(), "chunk 1 nyangkut");
+        t.feed_str(&c2);
+        t.feed_str(&c3);
+        let mut got = None;
+        while let Some(ev) = t.take_event() {
+            if let TerminalEvent::KittyImage { id, data, .. } = ev {
+                got = Some((id, data));
+            }
+        }
+        let (id, data) = got.expect("image lengkap");
+        // chunk 2 berisi payload salah → decode jadi bytes tak valid; yang
+        // penting pipeline aman & id stable; data = mid + (sampah) + tail
+        assert_eq!(id, 1);
+        assert_eq!(*data, png);
+        assert!(t.images.contains_key(&id));
+    }
+
+    #[test]
+    fn kitty_apc_payload_truncated_buffered_next_feed() {
+        let mut t = Terminal::new(TerminalConfig::default());
+        let png = fixture_png();
+        let full = b64(&png);
+        let apc = format!("\x1b_Ga=t,f=100,s=4,v=4,m=0;{}\x1b\\", full).into_bytes();
+        let cut = apc.len() - 3; // terminator belum lengkap
+        let (head, tail) = apc.split_at(cut);
+        t.feed_bytes(head);
+        assert!(t.pending_apc.is_some(), "APC terpotong di-buffer");
+        t.feed_bytes(tail);
+        let mut got = None;
+        while let Some(ev) = t.take_event() {
+            if let TerminalEvent::KittyImage { data, .. } = ev {
+                got = Some(data);
+            }
+        }
+        assert_eq!(*got.expect("image"), png, "APC lanjutan di-feed berikutnya");
+    }
+
+    #[test]
+    fn kitty_delete_all_and_by_id() {
+        let mut t = Terminal::new(TerminalConfig::default());
+        let png = fixture_png();
+        let apc1 = format!("\x1b_Ga=t,f=100,s=4,v=4,m=0;{}\x1b\\", b64(&png));
+        let apc2 = format!("\x1b_Ga=t,q=99,f=100,s=4,v=4,m=0;{}\x1b\\", b64(&png));
+        t.feed_str(&apc1);
+        t.feed_str(&apc2);
+        assert!(t.images.contains_key(&1));
+        assert!(t.images.contains_key(&99));
+        // hapus semua
+        t.feed_str("\x1b_Ga=d\x1b\\");
+        assert!(t.images.is_empty());
+        // pasang lagi, hapus per-id
+        let apc1 = format!("\x1b_Ga=t,q=7,f=100,m=0;{}\x1b\\", b64(&png));
+        let apc2 = format!("\x1b_Ga=t,q=8,f=100,m=0;{}\x1b\\", b64(&png));
+        t.feed_str(&apc1);
+        t.feed_str(&apc2);
+        t.feed_str("\x1b_Ga=d,q=7\x1b\\");
+        assert!(!t.images.contains_key(&7));
+        assert!(t.images.contains_key(&8));
+    }
+
+    #[test]
+    fn kitty_non_graphics_apc_ignored() {
+        // APC non-kitty (contoh: koneksi TMUX?) → jangan panic, tak ada event
+        let mut t = Terminal::new(TerminalConfig::default());
+        t.feed_str("\x1b_Ga=zzz,o=1;QQ==\x1b\\");
+        assert!(t.images.is_empty());
+        assert!(!t.has_event());
     }
 }
