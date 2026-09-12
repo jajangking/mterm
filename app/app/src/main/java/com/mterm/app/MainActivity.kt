@@ -127,7 +127,7 @@ fun TermView(session: TermSession) {
                     if (ch != ' ' && ch != '\u0000') {
                         paint.color = cell.first
                         buf[0] = ch
-                        drawIntoCanvas { it.nativeCanvas.drawText(buf, 0, 1, x * cellW, baseline, paint) }
+                        drawIntoCanvas { it.drawText(buf, 0, 1, x * cellW, baseline, paint) }
                     }
                 }
             }
