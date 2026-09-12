@@ -175,6 +175,30 @@ class TermSession(private val handle: Long) {
         return pixels
     }
 
+    /** Pewarna default (`0` dari JNI) → polyfill: bg gelap, fg terang. */
+    private fun color(c: Int): Int = if ((c ushr 24) == 0) {
+        if (c == 0) darkBg else c or 0xFF000000.toInt()
+    } else c
+
+    /** Ambil satu sel: (fg ARGB, bg ARGB, char). Warna tak-eksplisit
+     *  (alpha 0 dari JNI) di-polyfill: bg gelap, fg terang. */
+    fun cellAt(x: Int, y: Int): Triple<Int, Int, Char>? {
+        val out = ByteArray(12)
+        if (!NativeTerm.nativeCellAt(handle, x, y, out)) return null
+        val fg = readLE(out, 0)
+        val bg = readLE(out, 4)
+        return Triple(
+            if ((fg ushr 24) == 0) brightFg else fg,
+            if ((bg ushr 24) == 0) darkBg else bg,
+            readLE(out, 8).toChar(),
+        )
+    }
+
+    companion object {
+        val darkBg = 0xFF1B1B1F.toInt()
+        val brightFg = 0xFFE0E0E0.toInt()
+    }
+
     fun dirty(): Boolean = NativeTerm.nativeDirty(handle)
 
     private fun readLE(b: ByteArray, off: Int): Int {
@@ -186,12 +210,11 @@ class TermSession(private val handle: Long) {
 
     /**
      * Warna default (`0` dari JNI — tak ada warna) → polyfill: bg gelap,
-     * fg terang. Sampai font atlas masuk (Fase 8), setiap karakter dirender
-     * blok solid warna fg; spasi = bg.
+     * fg terang.
      */
     private fun paint(fg: Int, bg: Int, ch: Char): Int {
-        val b = if ((bg ushr 24) == 0) 0xFF1B1B1F.toInt() else bg
-        val f = if ((fg ushr 24) == 0) 0xFFE0E0E0.toInt() else fg
+        val b = if ((bg ushr 24) == 0) darkBg else bg
+        val f = if ((fg ushr 24) == 0) brightFg else fg
         return if (ch == ' ') b else f
     }
 }

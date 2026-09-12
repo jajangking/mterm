@@ -1,7 +1,6 @@
 package com.mterm.app
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.os.Bundle
 import android.text.Editable
 import android.text.InputType
@@ -25,19 +24,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -101,18 +101,37 @@ fun TermView(session: TermSession) {
     }
 
     Box(Modifier.fillMaxSize()) {
-        val bmp = remember(frame) {
-            val pixels = session.snapshot(cols, rows)
-            Bitmap.createBitmap(cols, rows, Bitmap.Config.ARGB_8888).apply {
-                setPixels(pixels, 0, cols, 0, 0, cols, rows)
+        key(frame) {
+            Canvas(Modifier.fillMaxSize()) {
+            val cellW = size.width / cols
+            val cellH = size.height / rows
+            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                typeface = android.graphics.Typeface.MONOSPACE
+                // lebar glyph monospace ≈ 0.6×textSize → isi lebar sel
+                textSize = cellW * 1.6f
             }
-        }
-        Canvas(Modifier.fillMaxSize()) {
-            // bitmap asli 80x24 px → di-stretch penuh layar
-            drawImage(
-                bmp.asImageBitmap(),
-                dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
-            )
+            val fm = paint.fontMetrics
+            val buf = charArrayOf(' ')
+            for (y in 0 until rows) {
+                val top = y * cellH
+                val baseline = top + cellH / 2f - (fm.ascent + fm.descent) / 2f
+                for (x in 0 until cols) {
+                    val cell = session.cellAt(x, y) ?: continue
+                    if (cell.second == 0) continue
+                    drawRect(
+                        color = Color(cell.second),
+                        topLeft = Offset(x * cellW, top),
+                        size = Size(cellW, cellH + 1f),
+                    )
+                    val ch = cell.third
+                    if (ch != ' ' && ch != '\u0000') {
+                        paint.color = cell.first
+                        buf[0] = ch
+                        drawIntoCanvas { it.nativeCanvas.drawText(buf, 0, 1, x * cellW, baseline, paint) }
+                    }
+                }
+            }
+            }
         }
         Text(
             "ketuk layar untuk keyboard",
