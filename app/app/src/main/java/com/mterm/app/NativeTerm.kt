@@ -108,6 +108,10 @@ class TermSession(private val handle: Long) {
      *  kelihatan (tty di perangkat echo-off). */
     fun input(bytes: ByteArray): Boolean {
         val ok = NativeTerm.nativeRunnerInput(handle, bytes)
+        android.util.Log.d(
+            "mterm",
+            "input ${bytes.size}b ok=$ok bytes=${bytes.map { it.toInt() and 0xff }}"
+        )
         if (ok) NativeTerm.nativeWrite(handle, bytes)
         return ok
     }
