@@ -81,6 +81,14 @@ fun TermView(session: TermSession) {
     val rows = 24
     var frame by remember { mutableStateOf(0) }
 
+    DisposableEffect(session) {
+        // debug: dump isi grid ke logcat (hapus setelah verifikasi)
+        val dump = kotlin.concurrent.timer(period = 1500) {
+            android.util.Log.d("mterm", "grid=[" + session.gridText().replace("\n", "|") + "]")
+        }
+        onDispose { dump.cancel() }
+    }
+
     // start_shell: PTY emulator dijalankan (sh), output → session
     val ctx = LocalContext.current
     LaunchedEffect(session) {

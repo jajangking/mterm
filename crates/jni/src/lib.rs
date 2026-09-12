@@ -636,6 +636,43 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeRunnerExit(
     guard(RUNNING, || runner_exit(handle as u64))
 }
 
+/// `nativeGridText(handle): String` — snapshot teks grid terminal (debug).
+#[no_mangle]
+#[allow(non_snake_case)]
+#[allow(clippy::needless_lifetimes)]
+pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeGridText<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    handle: jlong,
+) -> JString<'local> {
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let text = grid_text(handle as u64);
+        env.new_string(text).ok()
+    }));
+    match r {
+        Ok(Some(s)) => s,
+        _ => env.new_string("").unwrap(),
+    }
+}
+
+/// Snapshot isi grid terminal untuk tes/debug.
+fn grid_text(handle: u64) -> String {
+    let Some(shared) = get(handle) else {
+        return String::new();
+    };
+    let Ok(t) = shared.lock() else {
+        return String::new();
+    };
+    let mut out = String::new();
+    for y in 0..t.rows() {
+        for c in t.grid.line(y).cells.iter() {
+            out.push(c.ch);
+        }
+        out.push('\n');
+    }
+    out
+}
+
 // ── Session persistence (Fase 4) ─────────────────────────────────────────────
 
 /// `nativeSaveState(handle, path): Boolean` — simpan state terminal ke file.

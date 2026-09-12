@@ -50,7 +50,10 @@ case "${1:-}" in
   install)
     require_adb
     [ $# -eq 2 ] || { usage; exit 1; }
-    "$adb_bin" install -r "$2"
+    # CI debug keystore beda tiap run → update -r selalu bentrok
+    # soal signature. Uninstall dulu biar install baru selalu sukses.
+    "$adb_bin" uninstall com.mterm.app >/dev/null 2>&1
+    "$adb_bin" install "$2"
     "$adb_bin" shell am start -n com.mterm.app/.MainActivity
     ;;
   logcat)

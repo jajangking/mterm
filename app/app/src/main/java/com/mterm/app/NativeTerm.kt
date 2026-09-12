@@ -93,6 +93,11 @@ class TermSession(private val handle: Long) {
 
     fun resize(cols: Int, rows: Int) = NativeTerm.nativeResize(handle, cols, rows)
 
+    external fun nativeGridText(handle: Long): String
+
+    /** Debug: isi grid saat ini sebagai teks (per baris). */
+    fun gridText(): String = NativeTerm.nativeGridText(handle)
+
     /** Spawn PTY + Rust emu thread yang feed ke terminal handle ini; shell
      *  mulai dari CWD `cwd` (mis. folder data app). */
     fun startSession(
