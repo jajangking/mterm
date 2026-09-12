@@ -16,6 +16,20 @@ object NativeTerm {
     external fun nativeCellAt(handle: Long, x: Int, y: Int, out: ByteArray): Boolean
     external fun nativeDirty(handle: Long): Boolean
     external fun nativeTakeEvent(handle: Long, out: ByteArray): Int
+
+    // EmuRunner (thread model Fase 2): spawn PTY + feed engine di thread Rust.
+    external fun nativeSessionStart(
+        handle: Long,
+        cmd: String,
+        args: Array<String>,
+        cols: Int,
+        rows: Int,
+    ): Boolean
+
+    external fun nativeRunnerStop(handle: Long)
+    external fun nativeRunnerExit(handle: Long): Int
+    external fun nativeRunnerInput(handle: Long, bytes: ByteArray): Boolean
+    external fun nativeRunnerResize(handle: Long, cols: Int, rows: Int): Boolean
 }
 
 /** Event bukan-render dari Rust core: title, bell, mouse tracking. */
@@ -58,6 +72,22 @@ class TermSession(private val handle: Long) {
     fun write(bytes: ByteArray) = NativeTerm.nativeWrite(handle, bytes)
 
     fun resize(cols: Int, rows: Int) = NativeTerm.nativeResize(handle, cols, rows)
+
+    /** Spawn PTY + Rust emu thread yang feed ke terminal handle ini. */
+    fun startSession(cmd: String, args: Array<String>, cols: Int, rows: Int): Boolean =
+        NativeTerm.nativeSessionStart(handle, cmd, args, cols, rows)
+
+    /** Keystroke user → shell PTY (bukan feed engine langsung). */
+    fun input(bytes: ByteArray): Boolean = NativeTerm.nativeRunnerInput(handle, bytes)
+
+    /** -1 = masih jalan; >=0 = exit code; negatif lain = sinyal. */
+    fun sessionExit(): Int = NativeTerm.nativeRunnerExit(handle)
+
+    fun stopSession() = NativeTerm.nativeRunnerStop(handle)
+
+    /** Resize engine + PTY winsize biar sinkron. */
+    fun sessionResize(cols: Int, rows: Int): Boolean =
+        NativeTerm.nativeRunnerResize(handle, cols, rows)
 
     /** Ambil event non-render berikutnya (title/bell); null kalau kosong. */
     fun takeEvent(): TermEvent? {

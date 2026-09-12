@@ -15,6 +15,7 @@
 | PTY (`crates/pty`) | ✅ dibikin + test di Termux |
 | CLI (`crates/mterm-cli`) — `mterm run` / `doctor` / `profile` / `agent` | ✅ dibikin |
 | **Thread model** (`crates/pty::runner::EmuRunner`) | ✅ thread `mterm-emu` baca PTY → feed engine via callback; input/resize lewat sync_channel; exit code atomic; e2e `thread_model.rs` pass + 8 test runner |
+| **EmuRunner→JNI** (`crates/jni`) | ✅ `nativeSessionStart`/`nativeRunnerStop`/`nativeRunnerExit`/`nativeRunnerInput`/`nativeRunnerResize` + `TermSession` Kt; 6 test PTY asli di host (respawn, stop, destroy join) — kotlin belum di-compile (butuh CI) |
 | `Session` exit semantics | ✅ `exited()` sekarang cache kode (dulu setelah reap selalu kasih `Some(0)`); drop reap anti-zombie tetap |
 | End-to-end engine↔PTY di Termux | ✅ diverifikasi (echo, seq 500, SGR) |
 
@@ -64,11 +65,9 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
 
 ## Next todo yang disarankan
 
-1. **Fase 2 (JNI): wire `EmuRunner` → JNI** — expose `nativeSessionStart`
-   (spawn PTY + emu thread) + `nativeRunnerExit`/`nativeRunnerStop` di `crates/jni`;
-   Kotlin `TermSession` tinggal poll grid/batch pakai lock singkat. EmuRunner
-   sudah siap & diverifikasi di host, tinggal glue. CI Android build tetap di
-   GitHub Actions (Fase 3 chrome).
+1. **Fase 3 (Android Chrome)**: panggil `TermSession.startSession(cmd, args, cols, rows)`
+   di `TermService`, poll grid via `dirty`+`cellAt` per frame, input via
+   `input()` — EmuRunner sudah siap penuh di Rust (76 test hijau, 0 clippy).
 2. **Fase 6 (agent): ganti `StubBackend`** dengan backend HTTP nyata (Bun/Node
    standalone dulu; Groq HTTP di-skip untuk sekarang).
 3. Bersihkan: hapus step `Publish failure log for diagnosis` dari ci.yml + branch

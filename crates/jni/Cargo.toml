@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 mterm-core = { path = "../core" }
+mterm-pty  = { path = "../pty" }
 vte.workspace = true
 once_cell = "1"
 jni = { version = "0.21", default-features = false }

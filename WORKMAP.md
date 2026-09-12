@@ -50,6 +50,12 @@ Iterasi APK tanpa kabel — pairing sekali per day via Wireless debugging (Andro
       input/resize via sync_channel; RuntimeException-safe drop. E2E diuji
       `mterm-cli/tests/thread_model.rs`: main thread poll grid, controller
       thread feed, sama dengan kontrak loop Kotlin)
+- [x] EmuRunner → JNI wiring: `nativeSessionStart` (spawn PTY + emu thread,
+      respawn kalau sudah selesai), `nativeRunnerStop`/`nativeRunnerExit`/
+      `nativeRunnerInput`/`nativeRunnerResize`; Kotlin `TermSession`:
+      `startSession`/`input`/`sessionExit`/`stopSession`/`sessionResize`.
+      6 test integrasi PTY asli di host (exit code, signal, input→shell,
+      respawn block, stop, destroy join)
 - [x] Memory safety: bounds check, leak audit (guard `catch_unwind` FFI, handle
       OOB/poison→None, clamp dimensi, fuzz no-panic + invariant test)
 

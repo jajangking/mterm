@@ -11,12 +11,15 @@ use std::sync::{Arc, Mutex};
 
 use mterm_core::grid::Color;
 use mterm_core::terminal::{Terminal, TerminalConfig, TerminalEvent};
+use mterm_pty::runner::{send_input, EmuRunner};
+use mterm_pty::Session;
 
-use jni::objects::{JByteArray, JObject};
+use jni::objects::{JByteArray, JObject, JObjectArray, JString};
 use jni::sys::{jboolean, jbyteArray, jint, jlong, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 
 type SharedTerminal = Arc<Mutex<Terminal>>;
+type RunnerSlot = Arc<Mutex<Option<EmuRunner>>>;
 
 /// Batas dimensi layar (anti OOM-abort dari allocator, bukan panic).
 const MAX_COLS: i32 = 1024;
@@ -29,7 +32,7 @@ fn guard<T>(default: T, f: impl FnOnce() -> T) -> T {
 }
 
 #[derive(Default)]
-struct Handles(Vec<SharedTerminal>);
+struct Handles(Vec<SharedTerminal>, Vec<RunnerSlot>);
 
 static HANDLES: once_cell::sync::Lazy<Mutex<Handles>> =
     once_cell::sync::Lazy::new(|| Mutex::new(Handles::default()));
@@ -39,6 +42,7 @@ fn alloc_handle(term: SharedTerminal) -> u64 {
         return u64::MAX;
     };
     h.0.push(term);
+    h.1.push(Arc::new(Mutex::new(None)));
     (h.0.len() - 1) as u64
 }
 
@@ -47,6 +51,13 @@ fn get(handle: u64) -> Option<SharedTerminal> {
         return None;
     };
     g.0.get(handle as usize).cloned()
+}
+
+fn runner_slot(handle: u64) -> Option<RunnerSlot> {
+    let Ok(g) = HANDLES.lock() else {
+        return None;
+    };
+    g.1.get(handle as usize).cloned()
 }
 
 fn clamp_dim(v: i32, max: i32) -> usize {
@@ -67,6 +78,14 @@ fn init_term(cols: i32, rows: i32) -> u64 {
 }
 
 fn destroy(handle: u64) {
+    // stop & join emu thread dulu (kalau ada) biar tak ada thread yatim
+    if let Some(slot) = runner_slot(handle) {
+        if let Ok(mut g) = slot.lock() {
+            if let Some(r) = g.take() {
+                r.shutdown();
+            }
+        }
+    }
     let Ok(mut g) = HANDLES.lock() else {
         return;
     };
@@ -197,6 +216,126 @@ fn color_u32(c: Color) -> u32 {
     match c.to_rgb24() {
         Some((r, g, b)) => 0xFF00_0000 | ((r as u32) << 16) | ((g as u32) << 8) | b as u32,
         None => 0, // tak ada warna → chrome pakai default
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Session (EmuRunner) — Rust emu thread di balik satu handle terminal
+// ---------------------------------------------------------------------------
+
+/// Batas kode exit "masih jalan".
+const RUNNING: i32 = -1;
+
+/// Spawn PTY + emu thread yang feed ke terminal di `handle`; PTY winsize
+/// (cols, rows) ikut terminal. Kembalikan false kalau handle tak ada / masih
+/// ada session aktif belum selesai.
+fn spawn_session(handle: u64, cmd: &str, args: Vec<String>, cols: i32, rows: i32) -> bool {
+    let Some(slot) = runner_slot(handle) else {
+        return false;
+    };
+    let Some(term) = get(handle) else {
+        return false;
+    };
+
+    // reuse slot runner yang sudah selesai (take + shutdown/join), tolak kalau aktif
+    {
+        let mut g = match slot.lock() {
+            Ok(g) => g,
+            Err(_) => return false,
+        };
+        if let Some(old) = g.take() {
+            if old.exit_code() == RUNNING {
+                g.replace(old); // masih jalan → jangan ganggu
+                return false;
+            }
+            old.shutdown(); // sudah selesai (atau stop), lepaskan thread
+        }
+    }
+
+    let cols = clamp_dim(cols, MAX_COLS) as u16;
+    let rows = clamp_dim(rows, MAX_ROWS) as u16;
+    let session = match Session::spawn(cmd, &args, cols, rows) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    // emu thread feed byte → terminal yang sama dengan yang dipoll UI
+    let feed_term = term.clone();
+    let on_output = move |data: &[u8]| {
+        let Ok(mut t) = feed_term.lock() else {
+            return;
+        };
+        t.feed_bytes(data);
+    };
+    let runner = match EmuRunner::spawn(session, on_output) {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+
+    {
+        let Ok(mut g) = slot.lock() else {
+            return false;
+        };
+        g.replace(runner);
+    }
+    true
+}
+
+fn runner_stop(handle: u64) {
+    let Some(slot) = runner_slot(handle) else {
+        return;
+    };
+    let Ok(g) = slot.lock() else {
+        return;
+    };
+    if let Some(r) = g.as_ref() {
+        r.stop();
+    }
+}
+
+/// `-1` = masih jalan/tak ada session; >=0 = kode exit; negatif lain = sinyal.
+fn runner_exit(handle: u64) -> i32 {
+    let Some(slot) = runner_slot(handle) else {
+        return RUNNING;
+    };
+    let Ok(g) = slot.lock() else {
+        return RUNNING;
+    };
+    match g.as_ref() {
+        Some(r) => r.exit_code(),
+        None => RUNNING,
+    }
+}
+
+/// Kirim input user → shell (bukan lagi ke engine langsung).
+fn runner_input(handle: u64, bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return true;
+    }
+    let Some(slot) = runner_slot(handle) else {
+        return false;
+    };
+    let Ok(g) = slot.lock() else {
+        return false;
+    };
+    match g.as_ref() {
+        Some(r) => send_input(r.input(), bytes),
+        None => false,
+    }
+}
+
+/// Resize engine + PTY winsize bareng. False kalau tak ada runner.
+fn runner_resize(handle: u64, cols: i32, rows: i32) -> bool {
+    resize_term(handle, cols, rows);
+    let Some(slot) = runner_slot(handle) else {
+        return false;
+    };
+    let Ok(g) = slot.lock() else {
+        return false;
+    };
+    match g.as_ref() {
+        Some(r) => r.resize(clamp_dim(cols, MAX_COLS) as u16, clamp_dim(rows, MAX_ROWS) as u16),
+        None => false,
     }
 }
 
@@ -350,6 +489,118 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeTakeEvent(
     })
 }
 
+/// `nativeRunnerResize(handle, cols, rows): Boolean` — engine + PTY winsize.
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeRunnerResize(
+    _env: JNIEnv,
+    _this: JObject,
+    handle: jlong,
+    cols: jint,
+    rows: jint,
+) -> jboolean {
+    guard(JNI_FALSE, || {
+        if runner_resize(handle as u64, cols, rows) {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    })
+}
+
+/// `nativeSessionStart(handle, cmd, args: Array<String>, cols, rows): Boolean`
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeSessionStart(
+    mut env: JNIEnv,
+    _this: JObject,
+    handle: jlong,
+    cmd: JString,
+    args: JObjectArray,
+    cols: jint,
+    rows: jint,
+) -> jboolean {
+    guard(JNI_FALSE, || {
+        let cmd: String = match env.get_string(&cmd) {
+            Ok(s) => s.into(),
+            Err(_) => return JNI_FALSE,
+        };
+        let args = match string_array(&mut env, &args) {
+            Some(a) => a,
+            None => return JNI_FALSE,
+        };
+        if spawn_session(handle as u64, &cmd, args, cols, rows) {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    })
+}
+
+/// `nativeRunnerStop(handle)`
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeRunnerStop(
+    _env: JNIEnv,
+    _this: JObject,
+    handle: jlong,
+) {
+    guard((), || runner_stop(handle as u64));
+}
+
+/// `nativeRunnerExit(handle): Int` — -1 = jalan; >=0 = exit; -sinyal.
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeRunnerExit(
+    _env: JNIEnv,
+    _this: JObject,
+    handle: jlong,
+) -> jint {
+    guard(RUNNING, || runner_exit(handle as u64))
+}
+
+/// `nativeRunnerInput(handle, bytes: ByteArray): Boolean` — keystroke user → shell.
+#[no_mangle]
+#[allow(non_snake_case)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeRunnerInput(
+    env: JNIEnv,
+    _this: JObject,
+    handle: jlong,
+    bytes: jbyteArray,
+) -> jboolean {
+    guard(JNI_FALSE, || {
+        let bytes = unsafe { JByteArray::from_raw(bytes) };
+        let len = match env.get_array_length(&bytes) {
+            Ok(n) => n.max(0) as usize,
+            Err(_) => return JNI_FALSE,
+        };
+        let mut raw = vec![0i8; len];
+        if env.get_byte_array_region(&bytes, 0, &mut raw).is_err() {
+            return JNI_FALSE;
+        }
+        let bytes = raw.into_iter().map(|b| b as u8).collect::<Vec<u8>>();
+        if runner_input(handle as u64, &bytes) {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    })
+}
+
+/// Konversi `Array<String>` Kotlin → `Vec<String>` (kembali None kalau batal).
+fn string_array(env: &mut JNIEnv, arr: &JObjectArray) -> Option<Vec<String>> {
+    let n = env.get_array_length(arr).ok()?.max(0);
+    let mut out = Vec::with_capacity(n as usize);
+    for i in 0..n {
+        let obj = env.get_object_array_element(arr, i).ok()?;
+        let js = unsafe { JString::from_raw(obj.into_raw()) };
+        let s = env.get_string(&js).ok()?;
+        out.push(s.into());
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -480,5 +731,124 @@ mod tests {
 
     fn rows_of(handle: u64) -> usize {
         shared_with(handle).lock().unwrap().rows()
+    }
+
+    // ── EmuRunner wiring (membutuhkan PTY asli — jalan di Termux) ──
+
+    fn wait_exit(handle: u64, ms: u64) -> i32 {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+        while runner_exit(handle) == RUNNING && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        runner_exit(handle)
+    }
+
+    fn grid_text(handle: u64) -> String {
+        let g = shared_with(handle);
+        let t = g.lock().unwrap();
+        let mut s = String::new();
+        for y in 0..t.rows() {
+            for c in t.grid.line(y).cells.iter() {
+                s.push(c.ch);
+            }
+            s.push('\n');
+        }
+        s
+    }
+
+    #[test]
+    fn session_runs_in_emu_thread_and_feeds_terminal() {
+        let h = init_term(40, 10);
+        let ok = spawn_session(
+            h,
+            "sh",
+            vec!["-c".into(), "printf 'jni-runner-ok\n'; exit 0".into()],
+            40,
+            10,
+        );
+        assert!(ok, "spawn_session berhasil");
+        assert_eq!(runner_exit(h), RUNNING, "masih jalan sesaat setelah spawn");
+
+        let code = wait_exit(h, 5000);
+        assert_eq!(code, 0, "exit code 0");
+        let text = grid_text(h);
+        assert!(text.contains("jni-runner-ok"), "terminal berisi output: {text:?}");
+        destroy(h);
+    }
+
+    #[test]
+    fn session_exit_code_is_signal_or_nonzero() {
+        let h = init_term(40, 10);
+        assert!(spawn_session(h, "sh", vec!["-c".into(), "exit 7".into()], 40, 10));
+        assert_eq!(wait_exit(h, 5000), 7, "exit 7");
+        destroy(h);
+    }
+
+    #[test]
+    fn session_input_reaches_shell() {
+        let h = init_term(40, 10);
+        assert!(
+            spawn_session(
+                h,
+                "sh",
+                vec!["-c".into(), "read -r line; printf 'got:%s' \"$line\"".into()],
+                40,
+                10,
+            )
+        );
+        assert!(runner_input(h, b"halo\n"), "input ke channel terkirim");
+        let code = wait_exit(h, 5000);
+        assert_eq!(code, 0, "shell selesai");
+        assert!(
+            grid_text(h).contains("got:halo"),
+            "shell balas setelah input"
+        );
+        destroy(h);
+    }
+
+    #[test]
+    fn respawn_blocked_while_running_then_allowed() {
+        let h = init_term(40, 10);
+        assert!(
+            spawn_session(h, "sh", vec!["-c".into(), "sleep 1; exit 0".into()], 40, 10)
+        );
+        // masih jalan → respawn ditolak
+        assert!(
+            !spawn_session(h, "sh", vec!["-c".into(), "exit 0".into()], 40, 10),
+            "aktif → tolak spawn kedua"
+        );
+
+        let code = wait_exit(h, 5000);
+        assert_eq!(code, 0, "sleep selesai");
+        // sudah selesai → respawn boleh
+        assert!(
+            spawn_session(h, "sh", vec!["-c".into(), "printf 'again\n'; exit 0".into()], 40, 10)
+        );
+        assert_eq!(wait_exit(h, 5000), 0, "spawn kedua jalan");
+        let again = grid_text(h);
+        assert!(again.contains("again"), "output respawn: {again:?}");
+        destroy(h);
+    }
+
+    #[test]
+    fn runner_stop_marks_not_running() {
+        let h = init_term(40, 10);
+        assert!(spawn_session(h, "sh", vec!["-c".into(), "sleep 5; exit 0".into()], 40, 10));
+        assert_eq!(runner_exit(h), RUNNING);
+        runner_stop(h);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2000);
+        while runner_exit(h) == RUNNING && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert_ne!(runner_exit(h), RUNNING, "stop → thread keluar, code tercatat");
+        destroy(h);
+    }
+
+    #[test]
+    fn destroy_shuts_down_runner_thread() {
+        let h = init_term(40, 10);
+        assert!(spawn_session(h, "sh", vec!["-c".into(), "sleep 5; exit 0".into()], 40, 10));
+        destroy(h); // harus join thread tanpa hang/panic
+        assert_eq!(runner_exit(h), RUNNING, "slot runner ikut di-drop");
     }
 }

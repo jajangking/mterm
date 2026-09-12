@@ -190,6 +190,7 @@ mod tests {
     use std::time::Duration;
 
     /// Kumpulkan semua output di Arc<Mutex<Vec<u8>>> untuk diassert.
+    #[allow(clippy::type_complexity)]
     fn recorder() -> (Arc<Mutex<Vec<u8>>>, impl FnMut(&[u8])) {
         let buf = Arc::new(Mutex::new(Vec::new()));
         let out = Arc::clone(&buf);
