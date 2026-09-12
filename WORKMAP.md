@@ -90,7 +90,9 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
 **Tujuan**: Agent (opencode/hermes) hidup di workspace dan bisa dipanggil dari chrome.
 
 - [x] Unix socket IPC + protokol NDJSON (`mterm agent serve/start/ask/stop/reset/history`)
-- [ ] Backend LLM beneran (trait `Backend` siap; `StubBackend` echo untuk tes)
+- [x] Backend LLM beneran: `RestBackend` (curl streaming SSE, OpenAI-compatible:
+      Groq/OpenAI/openrouter/ollama) — default model `openai/gpt-oss-120b` via
+      env `MTERM_MODEL`; key dari `GROQ_API_KEY`/`~/.groq_key`; fallback `StubBackend`
 - [ ] Slash command: `/ask`, `/explain`, `/fix`, `/commit`
 - [ ] Agent output renderer: markdown → terminal (table, code, link)
 - [ ] Workspace-scoped agent lifecycle (start/stop/restart per-project)

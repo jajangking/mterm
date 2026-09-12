@@ -139,7 +139,14 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
   `Terminal::new`/`Grid::new` clamp cols/rows, grid pakai `saturating_sub`.
   Test baru: fuzz byte acak + sekuens ESC terpotong (no-panic + invariant),
   OOB handle/koordinat → aman, clamp dimensi negatif/raksasa. Core 28/28, jni
-  8/8. Commit `...`.
+  8/8.
+- **2026-09-12** Fase 6: **backend agent nyata** — `RestBackend` (OpenAI-
+  compatible, curl streaming SSE tanpa dep TLS/HTTP). Default Groq, model
+  `openai/gpt-oss-120b` (bisa `MTERM_MODEL` override), key `GROQ_API_KEY`/
+  `~/.groq_key`, fallback `StubBackend`. `mterm agent status` menampilkan
+  backend aktif. Error HTTP body di-surface. Terverifikasi LIVE di Termux:
+  `mterm agent ask "1+1?"` → "dua". Test: SSE parse unit + end-to-end curl
+  → fake HTTP server (skip kalau curl tak ada). mterm-cli 4/4, clippy 0.
 - **2026-09-12** CI rusak sesaat (3 run gagal) karena `cargo install
   cargo-ndk --version "^0.9"`; sudah diperbaiki di atas.
 

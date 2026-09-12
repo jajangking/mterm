@@ -97,6 +97,130 @@ impl Backend for StubBackend {
     }
 }
 
+const DEFAULT_MODEL: &str = "openai/gpt-oss-120b";
+
+/// Generic backend HTTP OpenAI-compatible (Groq/OpenAI/openrouter/ollama dll):
+/// pakai `curl` subprocess (tanpa dep TLS/HTTP berat di Termux). Streaming
+/// SSE `data:` di-parse per baris, delta dipakai lewat `on_delta`.
+#[derive(Debug, Clone)]
+pub struct RestBackend {
+    url: String,
+    model: String,
+    key: String,
+}
+
+impl RestBackend {
+    pub fn new(url: String, model: String, key: String) -> Self {
+        RestBackend { url, model, key }
+    }
+
+    #[cfg(test)]
+    fn curl_available() -> bool {
+        std::process::Command::new("curl")
+            .arg("--version")
+            .output()
+            .is_ok()
+    }
+}
+
+impl Backend for RestBackend {
+    fn ask(&self, history: &[Msg], on_delta: &mut dyn FnMut(&str)) -> io::Result<String> {
+        let payload = serde_json::json!({
+            "model": self.model,
+            "messages": history
+                .iter()
+                .map(|m| serde_json::json!({"role": m.role, "content": m.content}))
+                .collect::<Vec<_>>(),
+            "stream": true,
+            "temperature": 0.2,
+        });
+        let mut child = std::process::Command::new("curl")
+            .arg("-N")
+            .arg("-sS")
+            .arg("--max-time")
+            .arg("300")
+            .arg("-X")
+            .arg("POST")
+            .arg(&self.url)
+            .arg("-H")
+            .arg("Content-Type: application/json")
+            .arg("--oauth2-bearer")
+            .arg(&self.key)
+            .arg("-d")
+            .arg(payload.to_string())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| {
+                io::Error::new(
+                    e.kind(),
+                    format!("curl tidak bisa dijalankan (perlu curl): {e}"),
+                )
+            })?;
+
+        let stdout = child.stdout.take().expect("stdout piped");
+        let reader = std::io::BufReader::new(stdout);
+        let mut full = String::new();
+        let mut raw = Vec::new();
+        for line in reader.lines().map_while(Result::ok) {
+            raw.push(line.clone());
+            if let Some(mut piece) = sse_delta(&line) {
+                full.push_str(&piece);
+                on_delta(&mut piece);
+            }
+        }
+        let out = child.wait_with_output()?;
+        if !out.status.success() {
+            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            return Err(io::Error::other(format!(
+                "backend HTTP {}: {}",
+                out.status,
+                if err.is_empty() {
+                    "curl gagal".to_string()
+                } else {
+                    err
+                }
+            )));
+        }
+        if full.is_empty() {
+            let body = raw.join("\n").trim().to_string();
+            if !body.is_empty() {
+                return Err(io::Error::other(format!("backend HTTP error: {body}")));
+            }
+            return Err(io::Error::other("respons backend kosong"));
+        }
+        Ok(full)
+    }
+}
+
+/// Parse satu baris SSE: `data: <json>` → potongan `choices[0].delta.content`.
+/// `[DONE]` atau baris non-`data:` → None.
+fn sse_delta(line: &str) -> Option<String> {
+    let body = line.strip_prefix("data:")?.trim();
+    if body.is_empty() || body == "[DONE]" {
+        return None;
+    }
+    let v: Value = serde_json::from_str(body).ok()?;
+    v["choices"][0]["delta"]["content"]
+        .as_str()
+        .map(|s| s.to_string())
+}
+
+/// Key LLM: env `GROQ_API_KEY` dulu, fallback `~/.groq_key` (konvensi lokal).
+fn llm_key() -> Option<String> {
+    if let Ok(k) = std::env::var("GROQ_API_KEY") {
+        if !k.trim().is_empty() {
+            return Some(k.trim().to_string());
+        }
+    }
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    fs::read_to_string(PathBuf::from(home).join(".groq_key"))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 // ── Server (daemon) ──────────────────────────────────────────────────────
 
 fn send_json<W: Write>(w: &mut W, v: &Value) -> io::Result<()> {
@@ -224,7 +348,21 @@ fn serve_once(
 }
 
 fn backend() -> io::Result<Arc<dyn Backend>> {
+    if let Some(key) = llm_key() {
+        let model = std::env::var("MTERM_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
+        let url = "https://api.groq.com/openai/v1/chat/completions".to_string();
+        return Ok(Arc::new(RestBackend::new(url, model, key)) as Arc<dyn Backend>);
+    }
     Ok(Arc::new(StubBackend) as Arc<dyn Backend>)
+}
+
+fn backend_name() -> String {
+    if llm_key().is_some() {
+        let model = std::env::var("MTERM_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
+        format!("rest (groq default, model {model})")
+    } else {
+        "stub (echo — set GROQ_API_KEY atau ~/.groq_key utk backend nyata)".to_string()
+    }
 }
 
 // ── Client ───────────────────────────────────────────────────────────────
@@ -347,6 +485,7 @@ pub fn main(args: &[String]) -> io::Result<()> {
                     println!("sesi: {} pesan di {}", n, v["workspace"].as_str().unwrap_or("-"));
                 }
             }
+            println!("backend: {}", backend_name());
             Ok(())
         }
         "ask" => {
@@ -453,5 +592,66 @@ mod tests {
 
         t.join().unwrap();
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sse_delta_parses_content_only() {
+        assert_eq!(
+            sse_delta("data: {\"choices\":[{\"delta\":{\"content\":\"He\"}}]}"),
+            Some("He".into())
+        );
+        assert_eq!(sse_delta("data: {\"choices\":[{\"delta\":{}}]}"), None);
+        assert_eq!(sse_delta("data: [DONE]"), None);
+        assert_eq!(sse_delta(": keep-alive"), None);
+        assert_eq!(
+            sse_delta("data: {\"choices\":[{\"delta\":{\"content\":\"\"}}]}"),
+            Some(String::new())
+        );
+    }
+
+    #[test]
+    fn rest_backend_streams_via_curl_fake_server() {
+        if !RestBackend::curl_available() {
+            eprintln!("skip: curl tidak ada");
+            return;
+        }
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().unwrap();
+            use std::io::Write as _;
+            let body = concat!(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\r\n\r\n",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"lo teman\"}}]}\r\n\r\n",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"!\"}}]}\r\n\r\n",
+                "data: [DONE]\r\n\r\n",
+            );
+            let _ = sock.write_all(
+                format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n{body}")
+                    .as_bytes(),
+            );
+            let _ = sock.flush();
+        });
+
+        let url = format!("http://{addr}/v1/chat/completions");
+        let be = RestBackend::new(url, "fake-model".into(), "fake-key".into());
+        let history = vec![Msg {
+            role: "user".into(),
+            content: "hai".into(),
+        }];
+        let mut deltas = Vec::new();
+        let full = be
+            .ask(&history, &mut |p| deltas.push(p.to_string()))
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(full, "Hello teman!", "delta harus dirangkai");
+        assert_eq!(deltas, vec!["Hel", "lo teman", "!"]);
+    }
+
+    #[test]
+    fn llm_key_prefers_env_over_file() {
+        std::env::set_var("GROQ_API_KEY", "env-key");
+        assert_eq!(llm_key().as_deref(), Some("env-key"));
+        std::env::remove_var("GROQ_API_KEY");
     }
 }
