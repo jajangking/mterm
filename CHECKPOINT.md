@@ -7,21 +7,24 @@
 
 | Baris | Status |
 |-------|--------|
-| Rust core (`crates/core`) — vte + grid + ANSI | ✅ lestari, 18/18 test, 0 clippy |
-| JNI bridge (`crates/jni`) | ✅ ditaruh, build OK, `nativeTakeEvent` (title/bell) + 3 test lokal; **belum diuji di device** |
-| Android chrome (`app/`) — Compose + Gradle | ✅ scaffold, **belum di-build** (butuh SDK) |
-| ADB wireless helper (`scripts/adb-wireless.sh`) | ✅ siap dipakai |
-| CI workflow (`.github/workflows/ci.yml`) | ✅ file ada + langkah valid; tinggal push (GHA build APK belum dipantau) |
+| Rust core (`crates/core`) — vte + grid + ANSI | ✅ lestari, 18/18 test, 0 clippy, OSC8 + 256-color + `?` private mode + mouse tracking |
+| JNI bridge (`crates/jni`) | ✅ `nativeTakeEvent` (title/bell/mouse) + 4 test lokal; **belum diuji di device** |
+| Android chrome (`app/`) — Compose + Gradle | ⏳ wrapper 8.11.1 + fix brace; **APK build pertama masih berjalan di GHA** |
+| ADB wireless helper (`scripts/adb-wireless.sh`) | ✅ siap dipakai (mode executable sudah di-`chmod +x`) |
+| CI workflow (`.github/workflows/ci.yml`) | ⏳ rust job ✅; android job sedang diluruskan (target `aarch64-linux-android` + wrapper gradle) |
 | PTY (`crates/pty`) | ✅ dibikin + test di Termux |
-| CLI (`crates/mterm-cli`) — `mterm run` / `doctor` / `profile` | ✅ dibikin |
+| CLI (`crates/mterm-cli`) — `mterm run` / `doctor` / `profile` / `agent` | ✅ dibikin |
 | End-to-end engine↔PTY di Termux | ✅ diverifikasi (echo, seq 500, SGR) |
 
 ## Cara resume
 
 ```sh
 cd ~/mterm
-cargo test -p mterm-core 2>&1 | grep "test result"     # harus ok. 8 passed
-cargo build 2>&1 | grep -E "^error|^warning"            # harus kosong
+git status                       # sesi terakhir: CI android belum tuntas
+cargo test -p mterm-core 2>&1 | grep "test result"   # 18 passed
+cargo clippy --workspace --all-targets 2>&1 | tail -1   # 0 warning
+curl -s "https://api.github.com/repos/jajangking/mterm/actions/runs?per_page=1" \
+  | grep -E '"head_sha"|"status"|"conclusion"'
 ./scripts/adb-wireless.sh status                       # (opsional) cek device
 ```
 
@@ -59,11 +62,11 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
 
 ## Next todo yang disarankan
 
-Run silakan lanjut sesuai WORKMAP; saran urutan setelah ini:
-1. Fase 1 lanjut: alternate buffer test penuh, 256-color map, OSC8 hyperlink.
-2. Fase 2 lanjut: JNI callback (`onTitleChange` dsb) dari Rust ke Kotlin.
-3. Fase 6: agent IPC di `crates/mterm-cli` (ikr `/ask` dulu di CLI sebelum chrome).
-4. Run `cargo clippy --all-targets` + `cargo test --workspace` sebelum commit.
+1. ✅ green-kan CI (rusak beruntun: fmt → hang test → missing android target → wrapper gradle). Sekarang job rust ✅; job android menunggu hasil run `4b5681d`.
+2. Kalau APK sudah jadi trigger, tunggu `assembleDebug` sukses sekali sebelum lanjut fitur.
+3. Fase 2 lanjut: encode mouse → SGR mode 1006 (belum didukung), kirim ke PTY.
+4. Fase 6 lanjut: ganti `StubBackend` dengan implementasi nyata (Bun/Node standalone dulu; Groq HTTP di-skip).
+5. Uji JNI di device: source `nativeTakeEvent` dari Kotlin (TermService) begitu APK bisa diinstall.
 
 ## Riwayat sesi
 
@@ -85,3 +88,26 @@ Run silakan lanjut sesuai WORKMAP; saran urutan setelah ini:
 - **2026-09-12** Fase 6 cicil: `mterm agent` (serve/start/ask/stop/reset/history),
   Unix socket NDJSON + sesi per-workspace, backend pluggable (`StubBackend` echo;
   Groq HTTP di-skip — kompilasi berat). Test lokal diserahkan ke GH Actions.
+- **2026-09-12** CI GHA diluruskan beruntun: (1) `cargo fmt --check` gagal →
+  `cargo fmt` + push; (2) test `agent::ask_streams_and_persists` hang →
+  client socket tidak di-`drop` sebelum `thread::join` (server stuck di
+  `read_line`), fix dengan blok scope client; (3) android job: `chmod +x gradlew`
+  gagal (wrapper tak pernah di-commit) → unduh wrapper gradle 8.11.1 dari repo
+  gradle + tulis `gradle-wrapper.properties`; (4) `error[E0463] can't find crate
+  for core` → tambah `targets: aarch64-linux-android` di `dtolnay/rust-toolchain`;
+  (5) fix brace `app/app/build.gradle.kts` yang tidak ditutup (syntax error).
+  Commit tag: `c5ac7bd` (hang fix), `cd7ccde` (target), `4b5681d` (wrapper+build).
+
+> **Belum dicek**: hasil run terakhir (`4b5681d`) — tunggu job android
+> (`assembleDebug`) selesai + status lewat public API sebelum lanjut fitur.
+
+## Decision Log (tambahan di luar WORKMAP)
+
+- **Jangan pakai `sleep 120`** saat menunggu CI di Termux — user minta polling
+  singkat / tanpa sleep panjang (lihat Riwayat).
+- Test IPC pakai Unix socket lokal + `thread::join`: **client harus menutup
+  koneksinya** (drop stream / scope) sebelum join, biar server dapat EOF.
+- Gradle wrapper di-vendor langsung (tidak `gradle wrapper` di CI) — Termux tak
+  punya gradle; jar diunduh dari tag `v8.11.1` repo gradle.
+- `.gitignore`: `Cargo.lock` di-ignore; biarkan (keputusan lama), dev dep
+  pinning timing bias.
