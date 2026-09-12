@@ -44,7 +44,12 @@ Iterasi APK tanpa kabel — pairing sekali per day via Wireless debugging (Andro
 - [x] FFI boundary: `nativeInit`, `nativeWrite`, `nativeResize`, `nativeCellAt`, `nativeDirty`
 - [x] Callback → Kotlin: `onCellUpdate` (snapshot poll), `onTitleChange`, `onBell`,
       `onMouse` via `nativeTakeEvent` (encoding `[type][len][payload]`)
-- [ ] Thread model: Rust emu thread + polling di Kotlin
+- [x] Thread model: Rust emu thread + polling di Kotlin
+      (`mterm-pty::runner::EmuRunner` — thread `mterm-emu` baca PTY →
+      `Terminal::feed_bytes` via callback; caller poll `exit_code()`,
+      input/resize via sync_channel; RuntimeException-safe drop. E2E diuji
+      `mterm-cli/tests/thread_model.rs`: main thread poll grid, controller
+      thread feed, sama dengan kontrak loop Kotlin)
 - [x] Memory safety: bounds check, leak audit (guard `catch_unwind` FFI, handle
       OOB/poison→None, clamp dimensi, fuzz no-panic + invariant test)
 

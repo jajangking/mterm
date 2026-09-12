@@ -9,6 +9,8 @@ use std::io::{self, Read, Write};
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::path::{Path, PathBuf};
 
+pub mod runner;
+
 use libc::c_ushort;
 
 // ── Winsize ─────────────────────────────────────────────────────────────
@@ -82,7 +84,7 @@ pub struct Session {
     pub pid: libc::pid_t,
     master: File,
     _slave: File,
-    reaped: bool,
+    last_code: Option<i32>,
 }
 
 impl Session {
@@ -140,7 +142,7 @@ impl Session {
             pid,
             master,
             _slave,
-            reaped: false,
+            last_code: None,
         })
     }
 
@@ -161,15 +163,20 @@ impl Session {
         self.master.write(data)
     }
 
+    /// Ubah ukuran PTY (TIOCSWINSZ). Shell dapat SIGWINCH.
+    pub fn resize(&mut self, cols: u16, rows: u16) -> io::Result<()> {
+        set_winsize(self.master.as_raw_fd(), cols, rows)
+    }
+
     /// Deteksi child exit real (waitpid WNOHANG) + reap supaya tidak zombie.
+    /// Setelah reap, subsequent call mengembalikan cached code.
     pub fn exited(&mut self) -> Option<i32> {
-        if self.reaped {
-            return Some(0);
+        if let Some(code) = self.last_code {
+            return Some(code);
         }
         let mut status = 0;
         let r = unsafe { libc::waitpid(self.pid, &mut status, libc::WNOHANG) };
         if r == self.pid {
-            self.reaped = true;
             let code = if libc::WIFEXITED(status) {
                 libc::WEXITSTATUS(status) as i32
             } else if libc::WIFSIGNALED(status) {
@@ -177,6 +184,7 @@ impl Session {
             } else {
                 0
             };
+            self.last_code = Some(code);
             Some(code)
         } else {
             None
@@ -196,7 +204,7 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        if !self.reaped {
+        if self.last_code.is_none() {
             let mut status = 0;
             unsafe {
                 libc::waitpid(self.pid, &mut status, libc::WNOHANG);
