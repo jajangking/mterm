@@ -121,6 +121,18 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
   release `m` vs press `M`, roda 64/65, koordinat 1-based clamp) + parsing
   `CSI ?1006h/l` jadi `sgr_mouse` flag di `Terminal`. 9 test baru → core 27/27,
   workspace green, 0 clippy. Commit `d9b4ddb`.
+- **2026-09-12** CI: `cargo install --version "^0.9"` tidak valid (caret);
+  pakai `cargo install cargo-ndk` (latest) + key cache `cargo-ndk-latest`;
+  step failure-log di-hardening (`cp` pakai `|| true`). Green lagi, kini jobs
+  paralel → ~2,5 mnt. Commit `f1ec39c`. Contoh ID run hijau: lihat
+  `https://github.com/jajangking/mterm/actions`.
+- **2026-09-12** Core: **fast-path ASCII feed** — `feed_bytes` menulis run
+  printable/CR/LF langsung tanpa `vte` (ESC/control/utf8 → vte untuk sisa
+  chunk). `put_ascii`/`put_glyph_wide` (wide = lebar 1 sementara). Benchmark
+  `seq_10k_benchmark` (#[ignore]): **10k baris 80x24 = 60ms release (~6µs/baris,
+  ±166k baris/s)**; wrap 700k = 57ms. Core 27/27, clippy 0. Commit `da46c65`.
+- **2026-09-12** CI rusak sesaat (3 run gagal) karena `cargo install
+  cargo-ndk --version "^0.9"`; sudah diperbaiki di atas.
 
 > **Belum dicek**: hasil run terakhir (`4b5681d`) — tunggu job android
 > (`assembleDebug`) selesai + status lewat public API sebelum lanjut fitur.
