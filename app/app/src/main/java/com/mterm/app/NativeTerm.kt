@@ -31,6 +31,10 @@ object NativeTerm {
     external fun nativeRunnerInput(handle: Long, bytes: ByteArray): Boolean
     external fun nativeRunnerResize(handle: Long, cols: Int, rows: Int): Boolean
 
+    // Session persistence (Fase 4)
+    external fun nativeSaveState(handle: Long, path: String): Boolean
+    external fun nativeLoadState(path: String): Long
+
     // Viewport scrollback (Fase 3 scroll/selection)
     external fun nativeScrollOffset(handle: Long, offset: Int)
     external fun nativeScrollMax(handle: Long): Int
@@ -119,6 +123,12 @@ class TermSession(private val handle: Long) {
         val n = NativeTerm.nativeSgrMouse(handle, code, mods, release, x, y, out)
         return if (n > 0) out.copyOf(n) else ByteArray(0)
     }
+
+    /** Simpan state terminal ke file (grid, scrollback, cursor, mode). */
+    fun saveState(path: String): Boolean = NativeTerm.nativeSaveState(handle, path)
+
+    /** Restore terminal dari file. Kembalikan handle baru atau -1 gagal. */
+    fun loadState(path: String): Long = NativeTerm.nativeLoadState(path)
 
     /** Ambil event non-render berikutnya (title/bell); null kalau kosong. */
     fun takeEvent(): TermEvent? {

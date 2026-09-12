@@ -1,7 +1,9 @@
 //! Cell buffer model: memori-efisien, tanpa Spannable.
 
+use serde::{Deserialize, Serialize};
+
 /// Atribut teks per cell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CellAttrs {
     pub bold: bool,
     pub italic: bool,
@@ -22,7 +24,7 @@ impl CellAttrs {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Color {
     #[default]
     Default,
@@ -79,7 +81,7 @@ pub fn indexed_to_rgb(i: u8) -> (u8, u8, u8) {
 }
 
 /// Satu sel terminal. `width` untuk karakter wide (CJK/emoji).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cell {
     pub ch: char,
     pub attrs: CellAttrs,
@@ -121,7 +123,7 @@ pub fn text_width(ch: char) -> u8 {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Line {
     pub cells: Vec<Cell>,
     pub dirty: bool,
@@ -137,12 +139,18 @@ impl Line {
 }
 
 /// Buffer layar utama: `rows` Line x `cols` cell + scrollback.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Grid {
     lines: Vec<Line>,
     cols: usize,
     rows: usize,
     scrollback: Scrollback,
+}
+
+impl Default for Grid {
+    fn default() -> Self {
+        Grid::new(1, 1, 0)
+    }
 }
 
 impl Grid {
@@ -266,7 +274,7 @@ impl Grid {
 }
 
 /// Ring buffer scrollback: `Vec` + offset, tanpa shifting O(n).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Scrollback {
     lines: Vec<Line>,
     start: usize,

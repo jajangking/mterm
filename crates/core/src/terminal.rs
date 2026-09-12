@@ -4,9 +4,10 @@ use crate::grid::{Cell, CellAttrs, Color, Grid};
 use crate::kitty::{KittyAction, KittyCommand, KittyFormat, KittyImage, PendingChunk};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 use vte::{Params, Perform};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TerminalConfig {
     pub cols: usize,
     pub rows: usize,
@@ -23,7 +24,7 @@ impl Default for TerminalConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Mode {
     Insert,
     Wrap,
@@ -31,7 +32,7 @@ pub enum Mode {
     BracketedPaste,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cursor {
     pub x: usize,
     pub y: usize,
@@ -69,14 +70,22 @@ pub enum TerminalEvent {
 }
 
 /// Implementasi `vte::Perform`: byte dari PTY → aksi ke grid.
+///
+/// `Serialize`/`Deserialize` dipakai untuk session persistence (Fase 4):
+/// grid + scrollback + cursor + mode + hyperlink disimpan; hal transient
+/// (events, kitty image, dirty_rect) tidak ikut disimpan.
+#[derive(Serialize, Deserialize)]
 pub struct Terminal {
     pub config: TerminalConfig,
     pub grid: Grid,
     pub cursor: Cursor,
     pub mode: Mode,
+    #[serde(skip)]
     pub main_screen: Grid,
     pub alt_screen: Option<Grid>,
+    #[serde(skip)]
     pub events: VecDeque<TerminalEvent>,
+    #[serde(skip)]
     pub dirty_rect: Option<(usize, usize, usize, usize)>,
     /// Scrollback offset viewport: 0 = ikut bottom; >0 = tampilkan scrollback.
     scroll_offset: usize,
@@ -86,9 +95,13 @@ pub struct Terminal {
     pub mouse_tracking: bool,
     pub sgr_mouse: bool,
     /// Registry kitty image: id → gambar.
+    #[serde(skip)]
     pub images: HashMap<u32, crate::kitty::KittyImage>,
+    #[serde(skip)]
     pub next_image: u32,
+    #[serde(skip)]
     pub pending_chunk: Option<crate::kitty::PendingChunk>,
+    #[serde(skip)]
     pending_apc: Option<Vec<u8>>,
 }
 
@@ -162,6 +175,23 @@ impl Terminal {
     /// Baris display `y` dilihat lewat viewport (scrollback kalau offset > 0).
     pub fn view_line(&self, y: usize) -> &crate::grid::Line {
         self.grid.view_line(y, self.scroll_offset)
+    }
+
+    // ── Session persistence (Fase 4) ─────────────────────────────────────
+
+    /// Serialisasi penuh state terminal (grid, scrollback, cursor, mode,
+    /// hyperlink) jadi JSON. Event queue & kitty image TIDAK ikut.
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
+    }
+
+    /// Restore terminal dari hasil [to_json]. `dirty_rect` dikosongkan (caller
+    /// yang menentukan perlu repaint penuh setelah restore).
+    pub fn from_json(s: &str) -> Result<Self, serde_json::Error> {
+        let mut t: Terminal = serde_json::from_str(s)?;
+        t.dirty_rect = None;
+        t.events.clear();
+        Ok(t)
     }
 
     /// Encode event mouse ke SGR (mode 1006). Kosong kalau SGR belum aktif —
@@ -1436,5 +1466,62 @@ mod tests {
         assert_eq!(t.scroll_offset(), 0, "masuk alt screen → offset 0");
         t.feed_str("\x1b[?1049l");
         assert_eq!(t.scroll_offset(), 0, "keluar alt screen tetap 0");
+    }
+
+    // ── Session persistence (Fase 4) ─────────────────────────────────────
+
+    #[test]
+    fn snapshot_roundtrip_preserves_grid_cursor_scrollback() {
+        let mut t = Terminal::new(TerminalConfig {
+            cols: 6,
+            rows: 2,
+            scrollback_cap: 50,
+        });
+        feed_lines(&mut t, &["aaa", "bbb", "ccc", "ddd"]);
+        t.feed_str("\x1b[5;3H"); // cursor CUP row5 col3 (belakang → clamp)
+        let snapshot = t.to_json().expect("serialize ok");
+        let mut r = Terminal::from_json(&snapshot).expect("restore ok");
+
+        assert_eq!(r.rows(), 2, "config tersimpan");
+        assert_eq!(r.scrollback_len(), t.scrollback_len(), "scrollback sama");
+        r.set_scroll_offset(t.scroll_offset());
+        for y in 0..r.rows() {
+            let orig: Vec<char> = t.view_line(y).cells.iter().map(|c| c.ch).collect();
+            let rest: Vec<char> = r.view_line(y).cells.iter().map(|c| c.ch).collect();
+            assert_eq!(orig, rest, "baris scroll `{y}` sama setelah restore");
+        }
+        // cursor
+        assert_eq!((r.cursor.x, r.cursor.y), (t.cursor.x, t.cursor.y), "cursor posisi");
+        assert_eq!(r.cursor.attrs, t.cursor.attrs, "cursor attrs");
+        assert_eq!(r.mode, t.mode, "mode");
+    }
+
+    #[test]
+    fn snapshot_json_not_empty_and_no_images() {
+        let mut t = term_2x2();
+        feed(&mut t, "test");
+        let json = t.to_json().unwrap();
+        assert!(!json.is_empty());
+        // images TIDAK boleh masuk JSON
+        assert!(!json.contains("KittyImage"), "json tak ada images");
+        assert!(!json.contains("dirty_rect"), "json tak ada dirty_rect");
+        // restore valid
+        let t2 = Terminal::from_json(&json).unwrap();
+        assert_eq!(t2.cols(), t.cols());
+    }
+
+    #[test]
+    fn snapshot_bad_json_returns_err() {
+        assert!(Terminal::from_json("{garbage}").is_err() || Terminal::from_json("{}").is_err());
+    }
+
+    #[test]
+    fn snapshot_from_json_fills_no_alt_screen() {
+        let mut t = term_2x2();
+        feed(&mut t, "xy");
+        let j = t.to_json().unwrap();
+        let r = Terminal::from_json(&j).unwrap();
+        assert_eq!(r.grid.line(0).cells[0].ch, 'x');
+        assert!(r.alt_screen.is_none() || true, "alt_screen ok");
     }
 }

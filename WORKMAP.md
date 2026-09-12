@@ -91,8 +91,12 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
 **Tujuan**: Proses nggak mati ditiban Android; session bisa resume.
 
 - [ ] Foreground service (notification persistent) — `TermService` stub sudah ada
-- [ ] Session state serializer: cursor pos, scrollback, env vars
+- [x] Session state serializer: cursor pos, scrollback, env vars
+      (`Terminal::to_json`/`from_json` — grid+scrollback+cursor+mode+hyperlink,
+      transient di-skip; 4 test core + 3 JNI `nativeSaveState`/`nativeLoadState`
+      + e2e `session_persist.rs` PTY→save→restore→continue)
 - [ ] Auto-save on app background, auto-restore on foreground
+      (chrome lifecycle → `saveState`/`loadState`, butuh CI)
 - [x] PTY manager: fork + setsid + setpgid (pkill-safe) → `crates/pty`
 - [x] PID file per session (anti footgun `pkill -f`) → `PidFile`
 

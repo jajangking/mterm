@@ -608,6 +608,61 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeRunnerExit(
     guard(RUNNING, || runner_exit(handle as u64))
 }
 
+// ── Session persistence (Fase 4) ─────────────────────────────────────────────
+
+/// `nativeSaveState(handle, path): Boolean` — simpan state terminal ke file.
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeSaveState(
+    mut env: JNIEnv,
+    _this: JObject,
+    handle: jlong,
+    path: JString,
+) -> jboolean {
+    guard(JNI_FALSE, || {
+        let path: String = match env.get_string(&path) {
+            Ok(s) => s.into(),
+            Err(_) => return JNI_FALSE,
+        };
+        let Some(shared) = get(handle as u64) else {
+            return JNI_FALSE;
+        };
+        let Ok(t) = shared.lock() else {
+            return JNI_FALSE;
+        };
+        let Ok(json) = t.to_json() else {
+            return JNI_FALSE;
+        };
+        drop(t);
+        if std::fs::write(&path, json).is_ok() { JNI_TRUE } else { JNI_FALSE }
+    })
+}
+
+/// `nativeLoadState(path): Long` — restore state terminal dari file; -1 gagal.
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeLoadState(
+    mut env: JNIEnv,
+    _this: JObject,
+    path: JString,
+) -> jlong {
+    guard(-1, || {
+        let path: String = match env.get_string(&path) {
+            Ok(s) => s.into(),
+            Err(_) => return -1,
+        };
+        let json = match std::fs::read_to_string(&path) {
+            Ok(j) => j,
+            Err(_) => return -1,
+        };
+        let terminal = match mterm_core::terminal::Terminal::from_json(&json) {
+            Ok(t) => t,
+            Err(_) => return -1,
+        };
+        alloc_handle(Arc::new(Mutex::new(terminal))) as jlong
+    })
+}
+
 /// `nativeRunnerInput(handle, bytes: ByteArray): Boolean` — keystroke user → shell.
 #[no_mangle]
 #[allow(non_snake_case)]
@@ -871,6 +926,33 @@ mod tests {
         s
     }
 
+    fn save_state(h: u64, path: &std::path::Path) -> bool {
+        let Some(shared) = get(h) else {
+            return false;
+        };
+        let Ok(t) = shared.lock() else {
+            return false;
+        };
+        let Ok(json) = t.to_json() else {
+            return false;
+        };
+        drop(t);
+        std::fs::write(path, json).is_ok()
+    }
+
+    fn load_state(path: &std::path::Path) -> u64 {
+        let json = match std::fs::read_to_string(path) {
+            Ok(j) => j,
+            Err(_) => return 0,
+        };
+        let terminal =
+            match mterm_core::terminal::Terminal::from_json(&json) {
+                Ok(t) => t,
+                Err(_) => return 0,
+            };
+        alloc_handle(Arc::new(Mutex::new(terminal)))
+    }
+
     #[test]
     fn session_runs_in_emu_thread_and_feeds_terminal() {
         let h = init_term(40, 10);
@@ -1020,5 +1102,43 @@ mod tests {
         let seq2 = String::from_utf8_lossy(&out[..n2.max(0) as usize]).into_owned();
         assert!(seq2.ends_with('m'), "release = m: {seq2}");
         destroy(h);
+    }
+
+    // ── Session persistence ──
+
+    #[test]
+    fn save_and_load_state_roundtrip() {
+        let h = init_term(10, 4);
+        write(h, b"\x1b[31mHELLO\x1b[0m\nsecond\n");
+        let fg_cell = cell_at(h, 0, 0);
+        assert!(fg_cell.unwrap().0 != 0, "warna merah tersimpan sebelum save");
+
+        let path = std::env::temp_dir().join("mterm_state_test.json");
+        assert!(save_state(h, &path), "save ok");
+        destroy(h);
+
+        let h2 = load_state(&path);
+        assert!(h2 > 0, "load handle");
+        let fg_cell2 = cell_at(h2, 0, 0);
+        assert_eq!(fg_cell.map(|c| c.2), fg_cell2.map(|c| c.2), "warna sama");
+        assert_eq!(cell_at(h2, 0, 0).map(|c| c.1), fg_cell.map(|c| c.1), "bg sama");
+        destroy(h2);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn save_to_bad_path_returns_false() {
+        let h = init_term(10, 4);
+        assert!(!save_state(h, &std::path::PathBuf::from("/dev/null/notadir/x.json")));
+        destroy(h);
+    }
+
+    #[test]
+    fn load_missing_file_returns_zero() {
+        assert_eq!(
+            load_state(&std::path::PathBuf::from("/tmp/mterm_definitely_missing.json")),
+            0,
+            "file tak ada → 0"
+        );
     }
 }

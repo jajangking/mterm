@@ -8,3 +8,5 @@ description = "mterm terminal engine: VT parsing, cell grid, scrollback."
 [dependencies]
 vte.workspace = true
 thiserror = "2"
+serde.workspace = true
+serde_json.workspace = true
