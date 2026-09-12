@@ -44,13 +44,19 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
           exit ${PIPESTATUS[0]}
-      - name: Upload build log on failure
+      - name: Publish failure log for diagnosis
         if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gradle-failure-log
-          path: app/build.log
-          if-no-files-found: warn
+        working-directory: app
+        run: |
+          git config user.name "mterm-ci"
+          git config user.email "ci@mterm.local"
+          git switch -c ci-logs 2>/dev/null || git switch ci-logs
+          mkdir -p .ci-logs
+          ts=$(date +%s)
+          cp build.log ".ci-logs/$ts.log"
+          git add ".ci-logs/$ts.log"
+          git commit -m "ci logs $ts" || true
+          git push --force --set-upstream origin ci-logs || true
       - uses: actions/upload-artifact@v4
         with:
           name: mterm-debug-apk
