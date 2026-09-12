@@ -103,6 +103,16 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
   `Long`/`Int` di `TermEvent.decode`), workflow publish log error ke cabang
   `ci-logs` (perlu "Workflow permissions → Read and write" di Settings).
   APK `mterm-debug-apk` 16 MB ter-upload di run `3332a12`.
+- **2026-09-12** APK terinstall tapi FC → `UnsatisfiedLinkError`: Rust ekspor
+  nama `nativeInit` dkk tanpa prefix JNI, padahal JVM mencari
+  `Java_com_mterm_app_NativeTerm_*`; argumen `ByteArray` juga beda ABI.
+  Fix: rewrite `crates/jni` dua lapis — logika murni (5 test) + glue
+  `#[no_mangle] extern "system"` pakai crate `jni = 0.21` (default-features
+  off), `JByteArray::from_raw`, `get_byte_array_region`/`set_byte_array_region`.
+  APK baru green di run `d17f4fa`.
+- **2026-09-12** CI dipercepat: `workflow_dispatch` (rebuild tanpa push), job
+  android paralel (tanpa `needs: rust`), `Swatinem/rust-cache` + cache biner
+  `cargo-ndk`. Target waktu ~1-2 mnt.
 
 > **Belum dicek**: hasil run terakhir (`4b5681d`) — tunggu job android
 > (`assembleDebug`) selesai + status lewat public API sebelum lanjut fitur.
