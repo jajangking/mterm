@@ -20,6 +20,8 @@
 | **Session persistence** (Fase 4) | ✅ `Terminal::to_json`/`from_json` (serde, transient di-skip) + JNI `nativeSaveState`/`nativeLoadState` + e2e PTY save→restore→continue (#48 core, 20 jni, 1 cli) |
 | **Profile full + rilises terverifikasi** (Fase 5) | ✅ profile `full` (python+go+git+node) + `mterm profile verify <name>` (command -v + versi nyata) |
 | **Tool download + cache** (Fase 5) | ✅ `mterm tool install node`: .deb aarch64 repo Termux resmi → SHA256 vs `Packages.gz` → ekstrak `data.tar.xz` → `~/.mterm/cache/bin`; `tool status`; pin `--version`/`MTERM_NODE_VERSION` (mterm-cli bin 20 test; total 98) |
+| **Agent WS lifecycle** (Fase 6) | ✅ state per-workspace `~/.mterm/agent/<slug>/`; `start/stop/restart/status/ask/list` hormati `--workspace`/`MTERM_WORKSPACE`/cwd; teruji 2 agent paralel (mterm + /tmp) |
+| **Stderr collector** (Fase 6) | ✅ `mterm run` → `last_stderr.txt` (exit code + tail output, ANSI dibuang) → otomatis dibundle jadi system msg di `agent ask`; live-proven: Groq tahu error `gcc` terakhir (mterm-cli bin 27 test; total 104) |
 | `Session` exit semantics | ✅ `exited()` sekarang cache kode (dulu setelah reap selalu kasih `Some(0)`); drop reap anti-zombie tetap |
 | End-to-end engine↔PTY di Termux | ✅ diverifikasi (echo, seq 500, SGR) |
 

@@ -47,7 +47,7 @@ usage:
   mterm doctor               cek ketersediaan tool (git, node, dll)
   mterm profile list|use|show|verify
   mterm tool status|install <name> [--version vX]   node android-arm64 + cache
-  mterm agent start|ask|stop
+  mterm agent start|stop|restart|list|status|ask|reset|history|stderr [clear]
 ",
         env!("CARGO_PKG_VERSION")
     );

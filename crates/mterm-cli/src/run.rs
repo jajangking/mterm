@@ -15,6 +15,9 @@ use mterm_core::grid::Color;
 use mterm_core::terminal::{Terminal, TerminalConfig};
 use mterm_pty::Session;
 
+/// Batas maksimum tail yang ditulis ke collector stderr agent.
+const STDERR_CAP: usize = 16 * 1024;
+
 pub fn run(args: &[String]) -> io::Result<()> {
     let cmd = args.first().map(String::as_str).unwrap_or("sh");
     let cmd_args = &args[1..];
@@ -41,22 +44,28 @@ pub fn run(args: &[String]) -> io::Result<()> {
         rows: rows as usize,
         scrollback_cap: 10_000,
     });
+    // Collector "stderr": ekor output PTY → dipakai agent saat /ask.
+    let mut tail: Vec<u8> = Vec::with_capacity(2 * STDERR_CAP);
 
     if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-        run_interactive(&mut session, &mut term)?;
+        run_interactive(&mut session, &mut term, &mut tail)?;
     } else {
-        run_once(&mut session, &mut term)?;
+        run_once(&mut session, &mut term, &mut tail)?;
     }
+
+    let code = session.exited();
+    let text = String::from_utf8_lossy(&tail).into_owned();
+    let _ = crate::agent::write_stderr_capture(&text, code);
 
     pf.remove()?;
     Ok(())
 }
 
-fn run_once(session: &mut Session, term: &mut Terminal) -> io::Result<()> {
+fn run_once(session: &mut Session, term: &mut Terminal, tail: &mut Vec<u8>) -> io::Result<()> {
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
 
     loop {
-        let _ = drain(session, term);
+        let _ = drain(session, term, tail);
         if let Some(code) = session.exited() {
             println!("[mterm] exit code: {code}");
             break;
@@ -66,7 +75,7 @@ fn run_once(session: &mut Session, term: &mut Terminal) -> io::Result<()> {
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    let _ = drain(session, term);
+    let _ = drain(session, term, tail);
 
     // render hasil akhir sebagai teks polos (SGR dibersihkan)
     let stdout = io::stdout();
@@ -82,8 +91,8 @@ fn run_once(session: &mut Session, term: &mut Terminal) -> io::Result<()> {
     Ok(())
 }
 
-/// Baca semua output yang tersedia di PTY master → engine. Return 0.
-fn drain(session: &mut Session, term: &mut Terminal) -> io::Result<usize> {
+/// Baca semua output yang tersedia di PTY master → engine + tail collector.
+fn drain(session: &mut Session, term: &mut Terminal, tail: &mut Vec<u8>) -> io::Result<usize> {
     let mut buf = [0u8; 4096];
     let mut total = 0;
     loop {
@@ -91,6 +100,10 @@ fn drain(session: &mut Session, term: &mut Terminal) -> io::Result<usize> {
             0 => break,
             n => {
                 term.feed_bytes(&buf[..n]);
+                tail.extend_from_slice(&buf[..n]);
+                if tail.len() > STDERR_CAP {
+                    tail.drain(..tail.len() - STDERR_CAP);
+                }
                 total += n;
             }
         }
@@ -98,7 +111,11 @@ fn drain(session: &mut Session, term: &mut Terminal) -> io::Result<usize> {
     Ok(total)
 }
 
-fn run_interactive(session: &mut Session, term: &mut Terminal) -> io::Result<()> {
+fn run_interactive(
+    session: &mut Session,
+    term: &mut Terminal,
+    tail: &mut Vec<u8>,
+) -> io::Result<()> {
     use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 
     println!("[mterm] interactive — Ctrl-D/exit untuk keluar");
@@ -130,9 +147,9 @@ fn run_interactive(session: &mut Session, term: &mut Terminal) -> io::Result<()>
                 Err(_) => {}
             }
         }
-        let _ = drain(session, &mut *term);
+        let _ = drain(session, &mut *term, tail);
         if session.exited().is_some() {
-            let _ = drain(session, &mut *term);
+            let _ = drain(session, &mut *term, tail);
             done = true;
         }
 

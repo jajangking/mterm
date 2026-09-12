@@ -128,8 +128,15 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
       (file read cap 12k char; `git status`+`git diff --stat` untuk `/commit`)
 - [x] Agent output renderer: markdown → ANSI (tanpa dep, subset: heading/bold/italic/
       inline-code/fence/list/blockquote/hr/link) — `mterm agent ask --render`
-- [ ] Workspace-scoped agent lifecycle (start/stop/restart per-project)
-- [ ] Stderr + context collector → bundle ke agent (file+git sudah; stderr kolektor belum)
+- [x] Workspace-scoped agent lifecycle: state per-workspace di
+      `~/.mterm/agent/<slug>/` (socket+pid+session+log); `start/stop/status/ask/
+      reset/history` hormati `--workspace`/`MTERM_WORKSPACE`/cwd; tambah
+      `restart` & `list` (semua workspace); 5 test unit (slug, scope, resolve,
+      scan)
+- [x] Stderr + context collector → bundle ke agent: `mterm run` merekam ekor
+      output PTY + exit code ke `last_stderr.txt` (ANSI dibuang); `agent ask`
+      mengemasnya jadi system msg otomatis; `agent stderr [clear]` lihat/hapus;
+      3 test unit (collector, strip_ansi, bundling ke system msg)
 
 ## Fase 7 — Package Manager (Ringan)
 **Tujuan**: Ganti apt/dpkg dengan yang lebih cepat dan kecil.

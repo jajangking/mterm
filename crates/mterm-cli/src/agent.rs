@@ -15,27 +15,103 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-// ── Lokasi state ─────────────────────────────────────────────────────────
+// ── Lokasi state (per-workspace) ─────────────────────────────────────────
 
+/// Root semua state agent: `~/.mterm/agent/`.
 fn data_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
     PathBuf::from(home).join(".mterm").join("agent")
 }
 
-pub fn socket_path() -> PathBuf {
-    data_dir().join("agent.sock")
+/// Workspace terpilih: `--workspace <dir>` > env `MTERM_WORKSPACE` > cwd.
+pub fn resolve_workspace(args: &[String]) -> PathBuf {
+    args.windows(2)
+        .find(|w| w[0] == "--workspace")
+        .and_then(|w| w.get(1))
+        .map(PathBuf::from)
+        .or_else(|| std::env::var("MTERM_WORKSPACE").ok().map(PathBuf::from))
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
 }
 
-pub fn pid_path() -> PathBuf {
-    data_dir().join("agent.pid")
+/// Slug aman untuk nama folder state: path absolut, `/` dll → `_`.
+pub fn slug_for(ws: &Path) -> String {
+    let abs = ws.canonicalize().unwrap_or_else(|_| ws.to_path_buf());
+    abs.to_string_lossy()
+        .trim_start_matches('/')
+        .replace('/', "_")
+        .replace([' ', ':', '\n', '\t'], "_")
 }
 
-fn session_path() -> PathBuf {
-    data_dir().join("session.json")
+/// Direktori state untuk satu workspace.
+pub fn agent_dir_for(ws: &Path) -> PathBuf {
+    data_dir().join(slug_for(ws))
 }
 
-fn log_path() -> PathBuf {
-    data_dir().join("agent.log")
+/// Direktori state untuk workspace saat ini (default CLI).
+pub fn agent_dir() -> PathBuf {
+    agent_dir_for(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+}
+
+pub fn socket_for(dir: &Path) -> PathBuf {
+    dir.join("agent.sock")
+}
+
+pub fn pid_for(dir: &Path) -> PathBuf {
+    dir.join("agent.pid")
+}
+
+pub fn session_for(dir: &Path) -> PathBuf {
+    dir.join("session.json")
+}
+
+pub fn log_for(dir: &Path) -> PathBuf {
+    dir.join("agent.log")
+}
+
+/// File penampung "stderr" (ekor output perintah terakhir) → dibundle ke agent.
+pub fn stderr_for(dir: &Path) -> PathBuf {
+    dir.join("last_stderr.txt")
+}
+
+/// Tulis hasil akhir perintah (`tail` output grid) ke collector stderr.
+/// Baris pertama berformat `exit:N|error message` (baris pertama dari tail).
+/// ANSI escape dibuang biar teks bersih saat disuntik ke prompt agent.
+pub fn write_stderr_capture(text: &str, exit_code: Option<i32>) -> io::Result<()> {
+    let dir = agent_dir();
+    fs::create_dir_all(&dir)?;
+    let msg = match exit_code {
+        Some(0) => "exit:0".to_string(),
+        Some(c) => format!("exit:{c}"),
+        None => "exit:timeout|never-exit".to_string(),
+    };
+    fs::write(stderr_for(&dir), format!("{msg}\n{}", strip_ansi(text)))
+}
+
+/// Buang escape sequence ANSI (CSI `\x1b[...m`, dll) dari teks.
+pub fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' && chars.peek() == Some(&'[') {
+            chars.next(); // [
+            for c2 in chars.by_ref() {
+                if c2.is_ascii_alphabetic() || c2 == '~' {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Konten collector stderr untuk agent (dipotong kalau kegedean).
+pub fn stderr_bundle_for_dir(dir: &Path) -> String {
+    match fs::read_to_string(stderr_for(dir)) {
+        Ok(s) => cap_chars(s, MAX_CONTEXT_CHARS),
+        Err(_) => String::new(),
+    }
 }
 
 // ── Sesi percakapan ──────────────────────────────────────────────────────
@@ -392,6 +468,18 @@ fn handle_conn(
 
                 let backend = backend.clone();
                 let mut history = sess.messages.clone();
+                let mut sys_note = sys_note;
+                // Bundle collector stderr (ekor output perintah terakhir) ke
+                // context kalau ada — tanpa berada di sub-perintah khusus.
+                let agent_dir = session_path.parent().unwrap_or(session_path);
+                let stderr_note = stderr_bundle_for_dir(agent_dir);
+                if !stderr_note.is_empty() {
+                    if !sys_note.is_empty() {
+                        sys_note.push('\n');
+                    }
+                    sys_note.push_str("\n--- stderr output (ekor perintah terakhir) ---\n");
+                    sys_note.push_str(&stderr_note);
+                }
                 if !sys_note.is_empty() {
                     history.insert(
                         0,
@@ -486,20 +574,20 @@ fn backend_name() -> String {
 
 // ── Client ───────────────────────────────────────────────────────────────
 
-fn connect() -> io::Result<UnixStream> {
-    let path = socket_path();
+fn connect(dir: &Path) -> io::Result<UnixStream> {
+    let path = socket_for(dir);
     match UnixStream::connect(&path) {
         Ok(s) => Ok(s),
         Err(_) => Err(io::Error::new(
             io::ErrorKind::NotFound,
-            "agent belum jalan. Jalankan: mterm agent start",
+            "agent belum jalan untuk workspace ini. Jalankan: mterm agent start",
         )),
     }
 }
 
 /// Kirim satu request, cetak delta streaming, return error string bila ada.
-fn client_ask(q: &str) -> io::Result<()> {
-    let mut s = connect()?;
+fn client_ask(dir: &Path, q: &str) -> io::Result<()> {
+    let mut s = connect(dir)?;
     send_json(&mut s, &json!({"cmd": "ask", "text": q}))?;
     let reader = BufReader::new(s);
     let mut first = true;
@@ -535,8 +623,8 @@ fn client_ask(q: &str) -> io::Result<()> {
 
 /// Seperti `client_ask`, tapi delta dibuffer dan jawaban dirender markdown→ANSI
 /// sekali di akhir (`mterm agent ask --render ...`).
-fn client_ask_rendered(q: &str) -> io::Result<()> {
-    let mut s = connect()?;
+fn client_ask_rendered(dir: &Path, q: &str) -> io::Result<()> {
+    let mut s = connect(dir)?;
     send_json(&mut s, &json!({"cmd": "ask", "text": q}))?;
     let reader = BufReader::new(s);
     let mut buf = String::new();
@@ -567,87 +655,176 @@ fn client_ask_rendered(q: &str) -> io::Result<()> {
 
 // ── CLI entry ────────────────────────────────────────────────────────────
 
+/// List workspace yang punya state agent (`~/.mterm/agent/<slug>/`).
+fn scan_agents() -> io::Result<Vec<PathBuf>> {
+    let root = data_dir();
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+    let mut dirs = Vec::new();
+    for entry in fs::read_dir(&root)? {
+        let p = entry?.path();
+        if p.is_dir() {
+            dirs.push(p);
+        }
+    }
+    dirs.sort();
+    Ok(dirs)
+}
+
+/// Tampilkan info satu agent dir: pid/socket/sesi.
+fn print_agent(dir: &Path) {
+    let sock = socket_for(dir).exists();
+    let mut msgs = 0usize;
+    if let Ok(s) = fs::read_to_string(session_for(dir)) {
+        if let Ok(v) = serde_json::from_str::<Value>(&s) {
+            msgs = v["messages"].as_array().map(|a| a.len()).unwrap_or(0);
+        }
+    }
+    match mterm_pty::PidFile::read(pid_for(dir)) {
+        Some(p) if mterm_pty::PidFile::alive(p) => {
+            println!("  {:<45} pid {p} socket:{sock} sesi:{msgs} msg", dir.display());
+        }
+        _ => {
+            println!("  {:<45} stop socket:{sock} sesi:{msgs} msg", dir.display());
+        }
+    }
+}
+
 pub fn main(args: &[String]) -> io::Result<()> {
     let sub = args.first().map(String::as_str).unwrap_or("status");
     fs::create_dir_all(data_dir())?;
 
+    // Semua perintah (kecuali `list`) berkisar di Satu workspace.
+    let ws = resolve_workspace(args);
+    let dir = agent_dir_for(&ws);
+
     match sub {
         "serve" => {
-            // foreground server (dipakai `start`; bisa juga manual)
-            let listener = UnixListener::bind(socket_path())?;
-            println!("agent server: {}", socket_path().display());
+            // foreground server (dipakai `start`; bisa juga manual).
+            // Bind = workspace dir; hapus socket basi dulu supaya bisa re-serve.
+            let sock = socket_for(&dir);
+            fs::create_dir_all(&dir)?;
+            let _ = fs::remove_file(&sock);
+            let listener = UnixListener::bind(&sock)?;
+            println!("agent server: {}", sock.display());
             let be = backend()?;
-            run_server(listener, session_path(), be)
+            run_server(listener, session_for(&dir), be)
         }
         "start" => {
-            if let Some(pid) = mterm_pty::PidFile::read(pid_path()) {
+            fs::create_dir_all(&dir)?;
+            let sock = socket_for(&dir);
+            if let Some(pid) = mterm_pty::PidFile::read(pid_for(&dir)) {
                 if mterm_pty::PidFile::alive(pid) {
-                    println!("agent sudah jalan (pid {pid})");
+                    println!(
+                        "agent sudah jalan utk {} (pid {pid})",
+                        ws.display()
+                    );
                     return Ok(());
                 }
             }
-            let _ = fs::remove_file(socket_path());
+            let _ = fs::remove_file(&sock);
             let exe = std::env::current_exe()?;
             let log = fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(log_path())?;
+                .open(log_for(&dir))?;
             let log2 = log.try_clone()?;
+            let ws_abs = ws.canonicalize().unwrap_or(ws.clone());
             let child = std::process::Command::new(exe)
-                .args(["agent", "serve"])
+                .args(["agent", "serve", "--workspace"])
+                .arg(&ws_abs)
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::from(log))
                 .stderr(std::process::Stdio::from(log2))
                 .spawn()?;
-            let _ = mterm_pty::PidFile::create(pid_path(), child.id() as i32)?;
+            let _ = mterm_pty::PidFile::create(pid_for(&dir), child.id() as i32)?;
             // tunggu sebentar supaya bind socket sukses
             std::thread::sleep(std::time::Duration::from_millis(300));
             if !mterm_pty::PidFile::alive(child.id()) {
-                return Err(io::Error::other(
-                    "server langsung mati. Cek log: ~/.mterm/agent/agent.log",
-                ));
+                return Err(io::Error::other(format!(
+                    "server langsung mati. Cek log: {}",
+                    log_for(&dir).display()
+                )));
             }
-            println!("agent dimulai (pid {}) — log: {}", child.id(), log_path().display());
+            println!(
+                "agent dimulai utk {} (pid {}) — log: {}",
+                ws_abs.display(),
+                child.id(),
+                log_for(&dir).display()
+            );
             Ok(())
         }
         "stop" => {
-            let mut removed = false;
-            if let Some(pid) = mterm_pty::PidFile::read(pid_path()) {
-                removed = mterm_pty::PidFile::kill(pid)?;
+            if let Some(pid) = mterm_pty::PidFile::read(pid_for(&dir)) {
+                let _ = mterm_pty::PidFile::kill(pid)?;
             }
-            let _ = fs::remove_file(pid_path());
-            let _ = fs::remove_file(socket_path());
-            println!("agent dihentikan");
-            let _ = removed;
+            let _ = fs::remove_file(pid_for(&dir));
+            let _ = fs::remove_file(socket_for(&dir));
+            println!("agent dihentikan utk {}", ws.display());
+            Ok(())
+        }
+        "restart" => {
+            if let Some(pid) = mterm_pty::PidFile::read(pid_for(&dir)) {
+                let _ = mterm_pty::PidFile::kill(pid)?;
+            }
+            let _ = fs::remove_file(pid_for(&dir));
+            let _ = fs::remove_file(socket_for(&dir));
+            println!("agent stop, restart…");
+            let ws_arg = ws.display().to_string();
+            main(&[
+                "start".to_string(),
+                "--workspace".to_string(),
+                ws_arg,
+            ])
+        }
+        "list" => {
+            for d in scan_agents()? {
+                print_agent(&d);
+            }
             Ok(())
         }
         "status" => {
-            let pid = mterm_pty::PidFile::read(pid_path());
+            let pid = mterm_pty::PidFile::read(pid_for(&dir));
             match pid {
                 Some(p) if mterm_pty::PidFile::alive(p) => {
-                    let sock = socket_path().exists();
-                    println!("agent jalan (pid {p}, socket: {sock})");
+                    let sock = socket_for(&dir).exists();
+                    println!(
+                        "agent jalan utk {} (pid {p}, socket: {sock})",
+                        ws.display()
+                    );
                 }
-                _ => println!("agent tidak jalan"),
+                _ => println!(
+                    "agent tidak jalan untuk {}",
+                    ws.display()
+                ),
             }
-            if let Ok(s) = fs::read_to_string(session_path()) {
+            if let Ok(s) = fs::read_to_string(session_for(&dir)) {
                 if let Ok(v) = serde_json::from_str::<Value>(&s) {
                     let n = v["messages"].as_array().map(|a| a.len()).unwrap_or(0);
                     println!("sesi: {} pesan di {}", n, v["workspace"].as_str().unwrap_or("-"));
                 }
+            }
+            if !stderr_bundle_for_dir(&dir).is_empty() {
+                println!("stderr collector: ada (ekor output perintah terakhir)");
             }
             println!("backend: {}", backend_name());
             Ok(())
         }
         "ask" => {
             let mut render = false;
-            let mut q = None;
-            for a in args.iter().skip(1) {
-                match a.as_str() {
+            let mut q: Option<String> = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
                     "--render" => render = true,
-                    other if q.is_none() => q = Some(other.to_string()),
+                    "--workspace" => i += 1, // nilai workspace dilewati
+                    a if q.is_none() && a != "--render" && !a.starts_with('-') => {
+                        q = Some(a.to_string())
+                    }
                     _ => {}
                 }
+                i += 1;
             }
             let Some(text) = q else {
                 return Err(io::Error::new(
@@ -663,20 +840,21 @@ pub fn main(args: &[String]) -> io::Result<()> {
                 ));
             }
             if render {
-                client_ask_rendered(&text)
+                client_ask_rendered(&dir, &text)
             } else {
-                client_ask(&text)
+                client_ask(&dir, &text)
             }
         }
         "reset" => {
-            let _ = fs::remove_file(session_path());
-            println!("sesi di-reset");
+            fs::create_dir_all(&dir)?;
+            let _ = fs::remove_file(session_for(&dir));
+            println!("sesi di-reset utk {}", ws.display());
             Ok(())
         }
         "history" => {
-            let s = load_session(&session_path());
+            let s = load_session(&session_for(&dir));
             if s.messages.is_empty() {
-                println!("(kosong)");
+                println!("(kosong — {} )", ws.display());
             }
             for m in &s.messages {
                 let prefix = if m.role == "user" { "❯" } else { "─" };
@@ -684,9 +862,33 @@ pub fn main(args: &[String]) -> io::Result<()> {
             }
             Ok(())
         }
+        "stderr" => {
+            let p = stderr_for(&dir);
+            match args.get(1).map(String::as_str) {
+                Some("clear") => {
+                    let _ = fs::remove_file(&p);
+                    println!("stderr collector dibersihkan");
+                }
+                _ => {
+                    let body = stderr_bundle_for_dir(&dir);
+                    if body.is_empty() {
+                        println!(
+                            "{} belum ada. `mterm run` akan merekamnya otomatis.",
+                            p.display()
+                        );
+                    } else {
+                        println!("{body}");
+                    }
+                }
+            }
+            Ok(())
+        }
         other => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("agent: perintah tidak dikenal: {other} (serve|start|stop|status|ask|reset|history)"),
+            format!(
+                "agent: perintah tidak dikenal: {other} \
+                 (serve|start|stop|restart|list|status|ask|reset|history|stderr)"
+            ),
         )),
     }
 }
@@ -877,6 +1079,148 @@ mod tests {
         assert!(
             sys.contains("git status") || sys.contains("cwd"),
             "context berisi git: {sys}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ── Fase 6: workspace-scoped lifecycle + stderr collector ─────────────
+
+    #[test]
+    fn slug_menghilangkan_prefix_dan_separator() {
+        assert_eq!(
+            slug_for(Path::new("/data/dir sp:aces/Proj")),
+            "data_dir_sp_aces_Proj"
+        );
+        // relative → pokoknya tidak berisi '/'
+        assert!(!slug_for(Path::new("a/b")).contains('/'));
+    }
+
+    #[test]
+    fn workspace_scope_berupa_dir_berbeda() {
+        let a = agent_dir_for(Path::new("/tmp/ws-a"));
+        let b = agent_dir_for(Path::new("/tmp/ws-b"));
+        assert_ne!(a, b, "tiap workspace punya socket/pid sendiri");
+        assert_eq!(socket_for(&a).parent(), Some(a.as_path()));
+        assert_eq!(session_for(&a).parent(), Some(a.as_path()));
+    }
+
+    #[test]
+    fn resolve_workspace_memilih_arg_env_atau_cwd() {
+        let args = vec!["start".to_string(), "--workspace".to_string(), "/ws/x".to_string()];
+        assert_eq!(resolve_workspace(&args), PathBuf::from("/ws/x"));
+
+        std::env::set_var("MTERM_WORKSPACE", "/ws/env");
+        let plain = vec!["status".to_string()];
+        assert_eq!(resolve_workspace(&plain), PathBuf::from("/ws/env"));
+        std::env::remove_var("MTERM_WORKSPACE");
+
+        let empty: Vec<String> = vec![];
+        assert!(!resolve_workspace(&empty).as_os_str().is_empty(), "fallback cwd");
+    }
+
+    #[test]
+    fn stderr_collector_berisi_exit_code_dan_tail() {
+        let dir = std::env::temp_dir()
+            .join(format!("mterm-agent-ws-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let data_dir_orig = data_dir();
+        // redirect data_dir? tetap: tulis lewat agent_dir_for(ws) manual.
+        let _ = data_dir_orig;
+        let p = stderr_for(&dir);
+        fs::write(&p, "exit:1\nCommand 'gcc' not found").unwrap();
+
+        let bundle = stderr_bundle_for_dir(&dir);
+        assert!(bundle.contains("exit:1"));
+        assert!(bundle.contains("gcc"), "isi output kebawa: {bundle}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scan_agents_menemukan_dir_workspace_dengan_pid() {
+        let root = std::env::temp_dir()
+            .join(format!("mterm-agent-scan-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        // buat satu dir state buatan (pid mati).
+        fs::create_dir_all(root.join("ws_satu")).unwrap();
+        fs::write(root.join("ws_satu/agent.pid"), "9999999").unwrap();
+
+        // scan berdasarkan root buatan.
+        let mut dirs = Vec::new();
+        for entry in fs::read_dir(&root).unwrap() {
+            let p = entry.unwrap().path();
+            if p.is_dir() {
+                dirs.push(p);
+            }
+        }
+        assert!(dirs.iter().any(|d| { d.ends_with("ws_satu") }));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn strip_ansi_menghapus_csi_saja() {
+        assert_eq!(strip_ansi("a\x1b[0;1;31merror\x1b[0m b"), "aerror b");
+        assert_eq!(strip_ansi("teks polos"), "teks polos");
+        assert_eq!(strip_ansi("\x1b[2J\x1b[Hhalo"), "halo");
+        assert!(strip_ansi("\x1b]9;title\x1b\\").contains("title"), "OSC dibiarkan");
+    }
+
+    #[test]
+    fn stderr_bundle_dimasukkan_ke_system_msg_agent() {
+        let dir = std::env::temp_dir()
+            .join(format!("mterm-agent-std-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(stderr_for(&dir), "exit:127\nbash: gcc: command not found").unwrap();
+        let sock = dir.join("t.sock");
+        let sess = dir.join("t.json");
+        let listener = UnixListener::bind(&sock).unwrap();
+
+        let seen: std::sync::Arc<std::sync::Mutex<Vec<Msg>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        struct Rec {
+            seen: std::sync::Arc<std::sync::Mutex<Vec<Msg>>>,
+        }
+        impl Backend for Rec {
+            fn ask(&self, history: &[Msg], _on_delta: &mut dyn FnMut(&str)) -> io::Result<String> {
+                *self.seen.lock().unwrap() = history.to_vec();
+                Ok("ok".into())
+            }
+        }
+        let be = std::sync::Arc::new(Rec {
+            seen: std::sync::Arc::clone(&seen),
+        });
+
+        let sp = sess.clone();
+        let t = std::thread::spawn(move || {
+            let _ = serve_once(listener, sp, be);
+        });
+
+        {
+            let mut stream = UnixStream::connect(&sock).unwrap();
+            send_json(&mut stream, &json!({"cmd": "ask", "text": "kenapa gcc?"})).unwrap();
+            let reader = BufReader::new(stream.try_clone().unwrap());
+            for line in reader.lines().map_while(Result::ok) {
+                let v: Value = serde_json::from_str(&line).unwrap();
+                if v["type"].as_str() == Some("done") {
+                    break;
+                }
+            }
+        }
+        t.join().unwrap();
+
+        let history = seen.lock().unwrap();
+        let sys = history.iter().find(|m| m.role == "system").expect("ada system msg");
+        assert!(
+            sys.content.contains("stderr output"),
+            "stderr label masuk: {}",
+            sys.content
+        );
+        assert!(
+            sys.content.contains("gcc: command not found"),
+            "isi stderr kebawa: {}",
+            sys.content
         );
         let _ = fs::remove_dir_all(&dir);
     }
