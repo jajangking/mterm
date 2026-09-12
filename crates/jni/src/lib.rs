@@ -641,7 +641,7 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeRunnerExit(
 #[allow(non_snake_case)]
 #[allow(clippy::needless_lifetimes)]
 pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeGridText<'local>(
-    mut env: JNIEnv<'local>,
+    env: JNIEnv<'local>,
     _this: JObject<'local>,
     handle: jlong,
 ) -> JString<'local> {
