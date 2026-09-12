@@ -62,10 +62,13 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
 
 ## Next todo yang disarankan
 
-1. Install APK ke device via ADB wireless (unduh artifact `mterm-debug-apk` dari run `3332a12`, `adb install`), uji `nativeInit` di device + lihat logcat.
-2. Fase 2 lanjut: encode mouse → SGR mode 1006 (belum didukung), kirim ke PTY.
-3. Fase 6 lanjut: ganti `StubBackend` dengan implementasi nyata (Bun/Node standalone dulu; Groq HTTP di-skip).
-4. Uji JNI di device: source `nativeTakeEvent` dari Kotlin (TermService) begitu APK bisa diinstall.
+1. **Fase 1 (lanjut core): benchmark scroll 10k baris** — feed `seq 1 10000` via
+   `mterm run`, ukur throughput, optimasi grid kalau lambat (periksa
+   `Grid::scroll_up` → `lines.remove(0)` O(rows) — bisa pakai ring buffer
+   layar seperti scrollback).
+2. Install APK ke device / uji JNI di device (unduh artifact, `adb install -r`).
+3. Fase 2 lanjut: thread model Rust emu thread + memory safety audit.
+4. Fase 6 lanjut: ganti `StubBackend` dengan implementasi nyata (Bun/Node standalone dulu; Groq HTTP di-skip).
 5. Bersihkan: hapus step `Publish failure log for diagnosis` dari ci.yml + branch `ci-logs` kalau sudah tidak dibutuhkan; kembalikan repo ke private.
 
 ## Riwayat sesi
