@@ -169,8 +169,8 @@ class TermSession(private val handle: Long) {
      * blok solid warna fg; spasi = bg.
      */
     private fun paint(fg: Int, bg: Int, ch: Char): Int {
-        val b = if ((bg ushr 24) == 0) 0xFF1B1B1F else bg
-        val f = if ((fg ushr 24) == 0) 0xFFE0E0E0 else fg
+        val b = if ((bg ushr 24) == 0) 0xFF1B1B1F.toInt() else bg
+        val f = if ((fg ushr 24) == 0) 0xFFE0E0E0.toInt() else fg
         return if (ch == ' ') b else f
     }
 }
