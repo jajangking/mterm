@@ -18,6 +18,16 @@ use jni::JNIEnv;
 
 type SharedTerminal = Arc<Mutex<Terminal>>;
 
+/// Batas dimensi layar (anti OOM-abort dari allocator, bukan panic).
+const MAX_COLS: i32 = 1024;
+const MAX_ROWS: i32 = 512;
+
+/// Jalankan logika pendek JNI di dalam `catch_unwind`: panic di dalam mustahil
+/// ndelok unwind ke JVM (UB/abort). Kembali `default` kalau panic.
+fn guard<T>(default: T, f: impl FnOnce() -> T) -> T {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or(default)
+}
+
 #[derive(Default)]
 struct Handles(Vec<SharedTerminal>);
 
@@ -25,13 +35,22 @@ static HANDLES: once_cell::sync::Lazy<Mutex<Handles>> =
     once_cell::sync::Lazy::new(|| Mutex::new(Handles::default()));
 
 fn alloc_handle(term: SharedTerminal) -> u64 {
-    let mut h = HANDLES.lock().unwrap();
+    let Ok(mut h) = HANDLES.lock() else {
+        return u64::MAX;
+    };
     h.0.push(term);
     (h.0.len() - 1) as u64
 }
 
-fn get(handle: u64) -> Arc<Mutex<Terminal>> {
-    HANDLES.lock().unwrap().0[handle as usize].clone()
+fn get(handle: u64) -> Option<SharedTerminal> {
+    let Ok(g) = HANDLES.lock() else {
+        return None;
+    };
+    g.0.get(handle as usize).cloned()
+}
+
+fn clamp_dim(v: i32, max: i32) -> usize {
+    (v.max(1).min(max)) as usize
 }
 
 // ---------------------------------------------------------------------------
@@ -40,15 +59,17 @@ fn get(handle: u64) -> Arc<Mutex<Terminal>> {
 
 fn init_term(cols: i32, rows: i32) -> u64 {
     let cfg = TerminalConfig {
-        cols: cols.max(1) as usize,
-        rows: rows.max(1) as usize,
+        cols: clamp_dim(cols, MAX_COLS),
+        rows: clamp_dim(rows, MAX_ROWS),
         ..Default::default()
     };
     alloc_handle(Arc::new(Mutex::new(Terminal::new(cfg))))
 }
 
 fn destroy(handle: u64) {
-    let mut g = HANDLES.lock().unwrap();
+    let Ok(mut g) = HANDLES.lock() else {
+        return;
+    };
     if let Some(term) = g.0.get_mut(handle as usize) {
         *term = Arc::new(Mutex::new(Terminal::new(TerminalConfig::default())));
     }
@@ -59,22 +80,29 @@ fn write(handle: u64, bytes: &[u8]) {
     if bytes.is_empty() {
         return;
     }
-    let term = get(handle);
-    let mut t = term.lock().unwrap();
-    let mut parser = vte::Parser::new();
-    parser.advance(&mut *t, bytes);
+    let Some(shared) = get(handle) else {
+        return;
+    };
+    let Ok(mut t) = shared.lock() else {
+        return;
+    };
+    t.feed_bytes(bytes);
 }
 
 fn resize_term(handle: u64, cols: i32, rows: i32) {
-    let shared = get(handle);
-    let mut t = shared.lock().unwrap();
-    t.resize(cols.max(1) as usize, rows.max(1) as usize);
+    let Some(shared) = get(handle) else {
+        return;
+    };
+    let Ok(mut t) = shared.lock() else {
+        return;
+    };
+    t.resize(clamp_dim(cols, MAX_COLS), clamp_dim(rows, MAX_ROWS));
 }
 
 /// `cell_at(handle, x, y) -> Option<(fg_rgb24, bg_rgb24, ch)>`.
 fn cell_at(handle: u64, x: i32, y: i32) -> Option<(u32, u32, u32)> {
-    let shared = get(handle);
-    let t = shared.lock().unwrap();
+    let shared = get(handle)?;
+    let t = shared.lock().ok()?;
     if x < 0 || y < 0 || x as usize >= t.cols() || y as usize >= t.rows() {
         return None;
     }
@@ -87,8 +115,12 @@ fn cell_at(handle: u64, x: i32, y: i32) -> Option<(u32, u32, u32)> {
 }
 
 fn dirty(handle: u64) -> bool {
-    let shared = get(handle);
-    let t = shared.lock().unwrap();
+    let Some(shared) = get(handle) else {
+        return false;
+    };
+    let Ok(t) = shared.lock() else {
+        return false;
+    };
     t.dirty_rect.is_some()
 }
 
@@ -102,8 +134,12 @@ fn dirty(handle: u64) -> bool {
 /// Return: `n > 0` byte tertulis, `0` = tak ada event, `-1` = buffer kurang
 /// besar (event TIDAK dikonsumsi, bisa dipanggil ulang dengan buffer lebih).
 fn take_event(handle: u64, out: &mut [u8]) -> i32 {
-    let shared = get(handle);
-    let mut t = shared.lock().unwrap();
+    let Some(shared) = get(handle) else {
+        return -1;
+    };
+    let Ok(mut t) = shared.lock() else {
+        return -1;
+    };
     let ev = match t.events.front().cloned() {
         Some(e) => e,
         None => return 0,
@@ -145,7 +181,7 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeInit(
     cols: jint,
     rows: jint,
 ) -> jlong {
-    init_term(cols, rows) as jlong
+    guard(0, || init_term(cols, rows) as jlong)
 }
 
 /// `nativeDestroy(handle)`
@@ -156,7 +192,7 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeDestroy(
     _this: JObject,
     handle: jlong,
 ) {
-    destroy(handle as u64);
+    guard((), || destroy(handle as u64));
 }
 
 /// `nativeWrite(handle, bytes: ByteArray)`
@@ -169,17 +205,19 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeWrite(
     handle: jlong,
     bytes: jbyteArray,
 ) {
-    let bytes = unsafe { JByteArray::from_raw(bytes) };
-    let len = match env.get_array_length(&bytes) {
-        Ok(n) => n.max(0) as usize,
-        Err(_) => return,
-    };
-    let mut raw = vec![0i8; len];
-    if env.get_byte_array_region(&bytes, 0, &mut raw).is_err() {
-        return;
-    }
-    let bytes = raw.into_iter().map(|b| b as u8).collect::<Vec<u8>>();
-    write(handle as u64, &bytes);
+    guard((), || {
+        let bytes = unsafe { JByteArray::from_raw(bytes) };
+        let len = match env.get_array_length(&bytes) {
+            Ok(n) => n.max(0) as usize,
+            Err(_) => return,
+        };
+        let mut raw = vec![0i8; len];
+        if env.get_byte_array_region(&bytes, 0, &mut raw).is_err() {
+            return;
+        }
+        let bytes = raw.into_iter().map(|b| b as u8).collect::<Vec<u8>>();
+        write(handle as u64, &bytes);
+    });
 }
 
 /// `nativeResize(handle, cols, rows)`
@@ -192,7 +230,7 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeResize(
     cols: jint,
     rows: jint,
 ) {
-    resize_term(handle as u64, cols, rows);
+    guard((), || resize_term(handle as u64, cols, rows));
 }
 
 /// `nativeCellAt(handle, x, y, out): Boolean` — isi `out` (12 byte:
@@ -208,29 +246,31 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeCellAt(
     y: jint,
     out: jbyteArray,
 ) -> jboolean {
-    let (fg, bg, ch) = match cell_at(handle as u64, x, y) {
-        Some(c) => c,
-        None => return JNI_FALSE,
-    };
-    let out = unsafe { JByteArray::from_raw(out) };
-    let bytes = [
-        (fg & 0xFF) as i8,
-        ((fg >> 8) & 0xFF) as i8,
-        ((fg >> 16) & 0xFF) as i8,
-        ((fg >> 24) & 0xFF) as i8,
-        (bg & 0xFF) as i8,
-        ((bg >> 8) & 0xFF) as i8,
-        ((bg >> 16) & 0xFF) as i8,
-        ((bg >> 24) & 0xFF) as i8,
-        (ch & 0xFF) as i8,
-        ((ch >> 8) & 0xFF) as i8,
-        ((ch >> 16) & 0xFF) as i8,
-        ((ch >> 24) & 0xFF) as i8,
-    ];
-    if env.set_byte_array_region(&out, 0, &bytes).is_err() {
-        return JNI_FALSE;
-    }
-    JNI_TRUE
+    guard(JNI_FALSE, || {
+        let (fg, bg, ch) = match cell_at(handle as u64, x, y) {
+            Some(c) => c,
+            None => return JNI_FALSE,
+        };
+        let out = unsafe { JByteArray::from_raw(out) };
+        let bytes = [
+            (fg & 0xFF) as i8,
+            ((fg >> 8) & 0xFF) as i8,
+            ((fg >> 16) & 0xFF) as i8,
+            ((fg >> 24) & 0xFF) as i8,
+            (bg & 0xFF) as i8,
+            ((bg >> 8) & 0xFF) as i8,
+            ((bg >> 16) & 0xFF) as i8,
+            ((bg >> 24) & 0xFF) as i8,
+            (ch & 0xFF) as i8,
+            ((ch >> 8) & 0xFF) as i8,
+            ((ch >> 16) & 0xFF) as i8,
+            ((ch >> 24) & 0xFF) as i8,
+        ];
+        if env.set_byte_array_region(&out, 0, &bytes).is_err() {
+            return JNI_FALSE;
+        }
+        JNI_TRUE
+    })
 }
 
 /// `nativeDirty(handle): Boolean`
@@ -241,11 +281,13 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeDirty(
     _this: JObject,
     handle: jlong,
 ) -> jboolean {
-    if dirty(handle as u64) {
-        JNI_TRUE
-    } else {
-        JNI_FALSE
-    }
+    guard(JNI_FALSE, || {
+        if dirty(handle as u64) {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    })
 }
 
 /// `nativeTakeEvent(handle, out: ByteArray): Int`
@@ -258,20 +300,22 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeTakeEvent(
     handle: jlong,
     out: jbyteArray,
 ) -> jint {
-    let out = unsafe { JByteArray::from_raw(out) };
-    let cap = match env.get_array_length(&out) {
-        Ok(n) => n.max(0) as usize,
-        Err(_) => return -1,
-    };
-    let mut raw = vec![0u8; cap];
-    let n = take_event(handle as u64, &mut raw);
-    if n > 0 {
-        let bytes: Vec<i8> = raw[..n as usize].iter().map(|&b| b as i8).collect();
-        if env.set_byte_array_region(&out, 0, &bytes).is_err() {
-            return -1;
+    guard(-1, || {
+        let out = unsafe { JByteArray::from_raw(out) };
+        let cap = match env.get_array_length(&out) {
+            Ok(n) => n.max(0) as usize,
+            Err(_) => return -1,
+        };
+        let mut raw = vec![0u8; cap];
+        let n = take_event(handle as u64, &mut raw);
+        if n > 0 {
+            let bytes: Vec<i8> = raw[..n as usize].iter().map(|&b| b as i8).collect();
+            if env.set_byte_array_region(&out, 0, &bytes).is_err() {
+                return -1;
+            }
         }
-    }
-    n
+        n
+    })
 }
 
 #[cfg(test)]
@@ -353,5 +397,56 @@ mod tests {
         assert_eq!((fg >> 24) & 0xFF, 0xFF, "alpha opak untuk warna pasti");
         assert!(fg != 0, "fg tidak nol saat warna eksplisit");
         destroy(h);
+    }
+
+    #[test]
+    fn boundary_out_of_range_is_safe() {
+        // handle invalid → tak panic, kembalikan nilai aman
+        assert_eq!(cell_at(99_999, 0, 0), None, "handle tak ada → None");
+        assert_eq!(take_event(99_999, &mut [0u8; 8]), -1);
+        assert!(!dirty(99_999));
+
+        // handle valid, koordinat di luar layar → None (bukan panic)
+        let h = init_term(80, 24);
+        assert_eq!(cell_at(h, 80, 0), None);
+        assert_eq!(cell_at(h, 0, 24), None);
+        assert_eq!(cell_at(h, -1, 0), None);
+        assert_eq!(cell_at(h, 0, -5), None);
+        assert_eq!(cell_at(h, 100_000, 100_000), None);
+        destroy(h);
+    }
+
+    #[test]
+    fn negative_and_huge_dims_are_clamped() {
+        let h = init_term(-10, -10);
+        write(h, b"a");
+        assert_eq!(cell_at(h, 0, 0).map(|c| c.2), Some('a' as u32));
+        assert_eq!(cols_of(h), 1);
+        assert_eq!(rows_of(h), 1);
+
+        let h2 = init_term(i32::MAX, i32::MAX);
+        assert!(cols_of(h2) <= 1024 && rows_of(h2) <= 512, "cap anti-OOM");
+        destroy(h);
+        destroy(h2);
+    }
+
+    #[test]
+    fn guard_catches_panic_returns_default() {
+        // guard() menangkap panic dari logika internal tanpa unwind lintas FFI
+        // (di mana "bool" JNI kembalikan default, bukan UB).
+        let r = guard(42, || panic!("boom"));
+        assert_eq!(r, 42, "panic ditelan, default dikembalikan");
+    }
+
+    fn shared_with(handle: u64) -> std::sync::Arc<Mutex<Terminal>> {
+        get(handle).expect("handle ada setelah init/destroy cukup satu")
+    }
+
+    fn cols_of(handle: u64) -> usize {
+        shared_with(handle).lock().unwrap().cols()
+    }
+
+    fn rows_of(handle: u64) -> usize {
+        shared_with(handle).lock().unwrap().rows()
     }
 }

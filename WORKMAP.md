@@ -41,7 +41,8 @@ Iterasi APK tanpa kabel — pairing sekali per day via Wireless debugging (Andro
 - [x] Callback → Kotlin: `onCellUpdate` (snapshot poll), `onTitleChange`, `onBell`,
       `onMouse` via `nativeTakeEvent` (encoding `[type][len][payload]`)
 - [ ] Thread model: Rust emu thread + polling di Kotlin
-- [ ] Memory safety: bounds check, leak audit
+- [x] Memory safety: bounds check, leak audit (guard `catch_unwind` FFI, handle
+      OOB/poison→None, clamp dimensi, fuzz no-panic + invariant test)
 
 ## Fase 2.5 — Termux-first work (selesai)
 Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.

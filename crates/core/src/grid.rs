@@ -145,6 +145,9 @@ pub struct Grid {
 
 impl Grid {
     pub fn new(cols: usize, rows: usize, scrollback_cap: usize) -> Self {
+        // clamp >= 1 supaya `cols - 1` / index tak pernah underflow
+        let cols = cols.max(1);
+        let rows = rows.max(1);
         let mut lines = Vec::with_capacity(rows);
         for _ in 0..rows {
             lines.push(Line::new(cols));
@@ -165,7 +168,7 @@ impl Grid {
     }
 
     pub fn line(&self, y: usize) -> &Line {
-        &self.lines[y]
+        &self.lines[y.min(self.rows.saturating_sub(1))]
     }
 
     fn line_mut(&mut self, y: usize) -> &mut Line {
@@ -176,8 +179,8 @@ impl Grid {
     pub fn set(&mut self, x: usize, y: usize, cell: Cell) -> usize {
         let w = cell.width as usize;
         let cols = self.cols;
-        let line = self.line_mut(y);
-        line.cells[x.min(cols - 1)] = cell;
+        let line = self.line_mut(y.min(self.rows.saturating_sub(1)));
+        line.cells[x.min(cols.saturating_sub(1))] = cell;
         line.dirty = true;
         // placeholder cell kalau wide
         if w == 2 && x + 1 < cols {

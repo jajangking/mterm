@@ -62,14 +62,16 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
 
 ## Next todo yang disarankan
 
-1. **Fase 1 (lanjut core): benchmark scroll 10k baris** — feed `seq 1 10000` via
-   `mterm run`, ukur throughput, optimasi grid kalau lambat (periksa
-   `Grid::scroll_up` → `lines.remove(0)` O(rows) — bisa pakai ring buffer
-   layar seperti scrollback).
-2. Install APK ke device / uji JNI di device (unduh artifact, `adb install -r`).
-3. Fase 2 lanjut: thread model Rust emu thread + memory safety audit.
-4. Fase 6 lanjut: ganti `StubBackend` dengan implementasi nyata (Bun/Node standalone dulu; Groq HTTP di-skip).
-5. Bersihkan: hapus step `Publish failure log for diagnosis` dari ci.yml + branch `ci-logs` kalau sudah tidak dibutuhkan; kembalikan repo ke private.
+1. **Fase 2 (JNII): thread model Rust emu thread** — jalankan engine di thread
+   terpisah; Kotlin poll via channel/atomic, atau `nativeTakeEvent` tetap dipanggil
+   dari frame-rendering (tetap asinkron, tanpa blocking UI). Chidef polarity:
+   engine jalan di PTY reader thread (CLI sudah model ini di `run`), UI sinkron
+   lewat lock singkat per cell batch.
+2. **Fase 6 (agent): ganti `StubBackend`** dengan backend HTTP nyata (Bun/Node
+   standalone dulu; Groq HTTP di-skip untuk sekarang).
+3. Bersihkan: hapus step `Publish failure log for diagnosis` dari ci.yml + branch
+   `ci-logs` kalau sudah tidak dibutuhkan; kembalikan repo ke private.
+4. Fase 3 lanjut: Chrome Compose (Terminal view / SurfaceView).
 
 ## Riwayat sesi
 
@@ -131,6 +133,13 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
   chunk). `put_ascii`/`put_glyph_wide` (wide = lebar 1 sementara). Benchmark
   `seq_10k_benchmark` (#[ignore]): **10k baris 80x24 = 60ms release (~6µs/baris,
   ±166k baris/s)**; wrap 700k = 57ms. Core 27/27, clippy 0. Commit `da46c65`.
+- **2026-09-12** Fase 2: **memory safety audit** — JNI boundary di-bungkus
+  `guard(catch_unwind)` (panic tak lintas FFI), handle OOB/poison → `None`/
+  default (bukan `.unwrap()`), dimensi di-clamp (>=1, cap 1024x512 anti-OOM),
+  `Terminal::new`/`Grid::new` clamp cols/rows, grid pakai `saturating_sub`.
+  Test baru: fuzz byte acak + sekuens ESC terpotong (no-panic + invariant),
+  OOB handle/koordinat → aman, clamp dimensi negatif/raksasa. Core 28/28, jni
+  8/8. Commit `...`.
 - **2026-09-12** CI rusak sesaat (3 run gagal) karena `cargo install
   cargo-ndk --version "^0.9"`; sudah diperbaiki di atas.
 

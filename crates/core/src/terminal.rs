@@ -65,6 +65,12 @@ pub struct Terminal {
 
 impl Terminal {
     pub fn new(config: TerminalConfig) -> Self {
+        // jaga >= 1 kolom/baris supaya `cols - 1` di grid tak pernah underflow
+        let config = TerminalConfig {
+            cols: config.cols.max(1),
+            rows: config.rows.max(1),
+            ..config
+        };
         let grid = Grid::new(config.cols, config.rows, config.scrollback_cap);
         let cursor = Cursor {
             x: 0,
@@ -741,6 +747,51 @@ mod tests {
         let mut t2 = term_2x2();
         feed(&mut t2, "\x1b[?1000h");
         assert!(!t2.sgr_mouse, "1000h tanpa 1006 → SGR tetap off");
+    }
+
+    #[test]
+    fn fuzz_no_panic_invariants_hold() {
+        // Feed byte acak deterministik + sekuens ESC terpotong: tidak boleh panic,
+        // dan invariant grid harus bertahan.
+        let cfg = TerminalConfig {
+            cols: 40,
+            rows: 12,
+            ..Default::default()
+        };
+        let mut t = Terminal::new(cfg);
+        let mut rng = 0x9E37_79B9u32;
+        let mut buf = vec![0u8; 32 * 1024];
+        for round in 0..100 {
+            for b in buf.iter_mut() {
+                rng = rng.wrapping_mul(1664525).wrapping_add(1013904223);
+                *b = (rng >> 24) as u8;
+            }
+            if round % 3 == 0 {
+                // sekuens ESC nyata tapi dipotong (truncate)
+                let real = [
+                    b"\x1b[31;1mcolor\x1b[0m".as_slice(),
+                    b"\x1b]8;;https://a.dev\x07link\x1b]8;;\x07".as_slice(),
+                    b"\x1b[?1006h".as_slice(),
+                    b"\x1b]0;title\x07".as_slice(),
+                    b"\x1b(P\xB0".as_slice(),
+                ];
+                let s = real[round % real.len()];
+                t.feed_bytes(&s[..(rng as usize) % s.len()]);
+            }
+            t.feed_bytes(&buf);
+            t.feed_bytes(b"\r\n\x1b[2J\x1b[H");
+            assert_invariants(&t);
+        }
+    }
+
+    fn assert_invariants(t: &Terminal) {
+        assert!(t.cursor.x < t.cols());
+        assert!(t.cursor.y < t.rows());
+        for y in 0..t.grid.rows() {
+            let line = t.grid.line(y);
+            assert_eq!(line.cells.len(), t.grid.cols());
+        }
+        assert!(t.grid.rows() <= 12);
     }
 
     #[test]
