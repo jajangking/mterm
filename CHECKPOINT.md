@@ -9,9 +9,9 @@
 |-------|--------|
 | Rust core (`crates/core`) — vte + grid + ANSI | ✅ lestari, 18/18 test, 0 clippy, OSC8 + 256-color + `?` private mode + mouse tracking |
 | JNI bridge (`crates/jni`) | ✅ `nativeTakeEvent` (title/bell/mouse) + 4 test lokal; **belum diuji di device** |
-| Android chrome (`app/`) — Compose + Gradle | ⏳ wrapper 8.11.1 + fix brace; **APK build pertama masih berjalan di GHA** |
+| Android chrome (`app/`) — Compose + Gradle | ✅ build + artifact APK 16 MB (`mterm-debug-apk`) — belum diinstall di device |
 | ADB wireless helper (`scripts/adb-wireless.sh`) | ✅ siap dipakai (mode executable sudah di-`chmod +x`) |
-| CI workflow (`.github/workflows/ci.yml`) | ⏳ rust job ✅; android job sedang diluruskan (target `aarch64-linux-android` + wrapper gradle) |
+| CI workflow (`.github/workflows/ci.yml`) | ✅ **GREEN**: rust + android semua ok; failure log dipublish ke cabang `ci-logs` |
 | PTY (`crates/pty`) | ✅ dibikin + test di Termux |
 | CLI (`crates/mterm-cli`) — `mterm run` / `doctor` / `profile` / `agent` | ✅ dibikin |
 | End-to-end engine↔PTY di Termux | ✅ diverifikasi (echo, seq 500, SGR) |
@@ -62,11 +62,11 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
 
 ## Next todo yang disarankan
 
-1. ✅ green-kan CI (rusak beruntun: fmt → hang test → missing android target → wrapper gradle). Sekarang job rust ✅; job android menunggu hasil run `4b5681d`.
-2. Kalau APK sudah jadi trigger, tunggu `assembleDebug` sukses sekali sebelum lanjut fitur.
-3. Fase 2 lanjut: encode mouse → SGR mode 1006 (belum didukung), kirim ke PTY.
-4. Fase 6 lanjut: ganti `StubBackend` dengan implementasi nyata (Bun/Node standalone dulu; Groq HTTP di-skip).
-5. Uji JNI di device: source `nativeTakeEvent` dari Kotlin (TermService) begitu APK bisa diinstall.
+1. Install APK ke device via ADB wireless (unduh artifact `mterm-debug-apk` dari run `3332a12`, `adb install`), uji `nativeInit` di device + lihat logcat.
+2. Fase 2 lanjut: encode mouse → SGR mode 1006 (belum didukung), kirim ke PTY.
+3. Fase 6 lanjut: ganti `StubBackend` dengan implementasi nyata (Bun/Node standalone dulu; Groq HTTP di-skip).
+4. Uji JNI di device: source `nativeTakeEvent` dari Kotlin (TermService) begitu APK bisa diinstall.
+5. Bersihkan: hapus step `Publish failure log for diagnosis` dari ci.yml + branch `ci-logs` kalau sudah tidak dibutuhkan; kembalikan repo ke private.
 
 ## Riwayat sesi
 
@@ -97,6 +97,12 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
   for core` → tambah `targets: aarch64-linux-android` di `dtolnay/rust-toolchain`;
   (5) fix brace `app/app/build.gradle.kts` yang tidak ditutup (syntax error).
   Commit tag: `c5ac7bd` (hang fix), `cd7ccde` (target), `4b5681d` (wrapper+build).
+- **2026-09-12** CI tuntas green: `android.useAndroidX=true` di
+  `app/gradle.properties`, fix compile Kotlin (scope `@Composable`
+  `rememberTermSession`, buang `@NativeMethods` unresolved, `remember(frame)`,
+  `Long`/`Int` di `TermEvent.decode`), workflow publish log error ke cabang
+  `ci-logs` (perlu "Workflow permissions → Read and write" di Settings).
+  APK `mterm-debug-apk` 16 MB ter-upload di run `3332a12`.
 
 > **Belum dicek**: hasil run terakhir (`4b5681d`) — tunggu job android
 > (`assembleDebug`) selesai + status lewat public API sebelum lanjut fitur.
