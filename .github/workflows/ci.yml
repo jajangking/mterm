@@ -24,6 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
 
       # Rust → shared lib untuk arm64
       - run: cargo install cargo-ndk
