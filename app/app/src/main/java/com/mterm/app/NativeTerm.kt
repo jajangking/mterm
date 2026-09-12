@@ -16,6 +16,7 @@ object NativeTerm {
     external fun nativeCellAt(handle: Long, x: Int, y: Int, out: ByteArray): Boolean
     external fun nativeDirty(handle: Long): Boolean
     external fun nativeTakeEvent(handle: Long, out: ByteArray): Int
+    external fun nativeGridText(handle: Long): String
 
     // EmuRunner (thread model Fase 2): spawn PTY + feed engine di thread Rust.
     external fun nativeSessionStart(
@@ -92,8 +93,6 @@ class TermSession(private val handle: Long) {
     fun write(bytes: ByteArray) = NativeTerm.nativeWrite(handle, bytes)
 
     fun resize(cols: Int, rows: Int) = NativeTerm.nativeResize(handle, cols, rows)
-
-    external fun nativeGridText(handle: Long): String
 
     /** Debug: isi grid saat ini sebagai teks (per baris). */
     fun gridText(): String = NativeTerm.nativeGridText(handle)
