@@ -2,9 +2,9 @@
 
 use crate::grid::{Cell, CellAttrs, Color, Grid};
 use crate::kitty::{KittyAction, KittyCommand, KittyFormat, KittyImage, PendingChunk};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use serde::{Deserialize, Serialize};
 use vte::{Params, Perform};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1451,9 +1451,17 @@ mod tests {
         let mut t = term_2x2();
         feed_lines(&mut t, &["x", "y", "z"]);
         t.set_scroll_offset(1);
-        assert_eq!(t.dirty_rect, Some((0, 0, 2, 2)), "scroll → seluruh layar dirty");
+        assert_eq!(
+            t.dirty_rect,
+            Some((0, 0, 2, 2)),
+            "scroll → seluruh layar dirty"
+        );
         t.set_scroll_offset(1);
-        assert_eq!(t.dirty_rect, Some((0, 0, 2, 2)), "offset sama → dirty tetap");
+        assert_eq!(
+            t.dirty_rect,
+            Some((0, 0, 2, 2)),
+            "offset sama → dirty tetap"
+        );
     }
 
     #[test]
@@ -1491,7 +1499,11 @@ mod tests {
             assert_eq!(orig, rest, "baris scroll `{y}` sama setelah restore");
         }
         // cursor
-        assert_eq!((r.cursor.x, r.cursor.y), (t.cursor.x, t.cursor.y), "cursor posisi");
+        assert_eq!(
+            (r.cursor.x, r.cursor.y),
+            (t.cursor.x, t.cursor.y),
+            "cursor posisi"
+        );
         assert_eq!(r.cursor.attrs, t.cursor.attrs, "cursor attrs");
         assert_eq!(r.mode, t.mode, "mode");
     }

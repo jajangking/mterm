@@ -30,14 +30,30 @@ fn pkg_root() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
     PathBuf::from(home).join(".mterm").join("pkg")
 }
-fn prefix_dir() -> PathBuf { pkg_root().join("prefix") }
-fn cache_parts() -> PathBuf { pkg_root().join("cache").join("parts") }
-fn cache_pkg() -> PathBuf { pkg_root().join("cache").join("pkg") }
-fn indexes_dir() -> PathBuf { pkg_root().join("indexes") }
-fn state_file() -> PathBuf { pkg_root().join("state").join("installed.json") }
-fn mirrors_file() -> PathBuf { pkg_root().join("mirrors.json") }
-fn sign_priv() -> PathBuf { pkg_root().join("sign.priv") }
-fn sign_pub() -> PathBuf { pkg_root().join("sign.pub") }
+fn prefix_dir() -> PathBuf {
+    pkg_root().join("prefix")
+}
+fn cache_parts() -> PathBuf {
+    pkg_root().join("cache").join("parts")
+}
+fn cache_pkg() -> PathBuf {
+    pkg_root().join("cache").join("pkg")
+}
+fn indexes_dir() -> PathBuf {
+    pkg_root().join("indexes")
+}
+fn state_file() -> PathBuf {
+    pkg_root().join("state").join("installed.json")
+}
+fn mirrors_file() -> PathBuf {
+    pkg_root().join("mirrors.json")
+}
+fn sign_priv() -> PathBuf {
+    pkg_root().join("sign.priv")
+}
+fn sign_pub() -> PathBuf {
+    pkg_root().join("sign.pub")
+}
 
 // ── Model data (matching index.json / mirrors.json / installed.json) ─────────
 
@@ -154,7 +170,10 @@ fn load_pub() -> Option<[u8; 32]> {
 
 fn save_priv(seed: &[u8; 32]) -> io::Result<PathBuf> {
     fs::create_dir_all(pkg_root())?;
-    fs::write(sign_priv(), seed.iter().map(|b| format!("{b:02x}")).collect::<String>())?;
+    fs::write(
+        sign_priv(),
+        seed.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+    )?;
     Ok(sign_priv())
 }
 
@@ -163,7 +182,13 @@ fn pub_of_priv(seed: &[u8; 32]) -> [u8; 32] {
 }
 
 fn save_pub(pubkey: &[u8; 32]) -> io::Result<()> {
-    fs::write(sign_pub(), pubkey.iter().map(|b| format!("{b:02x}")).collect::<String>())
+    fs::write(
+        sign_pub(),
+        pubkey
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>(),
+    )
 }
 
 fn sign_bytes(data: &[u8]) -> io::Result<Vec<u8>> {
@@ -213,7 +238,11 @@ fn fetch_to(url: &str, dest: &Path) -> io::Result<()> {
     }
     let status = Command::new("sh")
         .arg("-c")
-        .arg(format!("curl -fsSL --max-time 180 -o '{}' '{}' 2>/dev/null", dest.display(), url))
+        .arg(format!(
+            "curl -fsSL --max-time 180 -o '{}' '{}' 2>/dev/null",
+            dest.display(),
+            url
+        ))
         .status()?;
     if !status.success() {
         return Err(io::Error::other(format!("unduh gagal: {url}")));
@@ -271,7 +300,10 @@ pub fn repo_index(repo_dir: &Path) -> io::Result<()> {
             let chunk = &data[off..end];
             let sha = sha256_hex(chunk);
             fs::write(parts.join(&sha), chunk)?;
-            part_refs.push(PartRef { sha256: sha, size: chunk.len() as u64 });
+            part_refs.push(PartRef {
+                sha256: sha,
+                size: chunk.len() as u64,
+            });
             off = end;
         }
         packages.push(IndexPkg {
@@ -287,7 +319,10 @@ pub fn repo_index(repo_dir: &Path) -> io::Result<()> {
 
     let index = Index {
         format: FORMAT,
-        name: repo_dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "repo".into()),
+        name: repo_dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "repo".into()),
         updated: chrono_now(),
         packages,
     };
@@ -378,7 +413,11 @@ fn update_mirror(mirror: &Mirror) -> io::Result<Index> {
     }
     write_index(&mirror.name, &json)?;
     let index: Index = serde_json::from_slice(&json)?;
-    let status = if verified { "terverifikasi" } else { "tanpa kunci (tidak diverifikasi)" };
+    let status = if verified {
+        "terverifikasi"
+    } else {
+        "tanpa kunci (tidak diverifikasi)"
+    };
     println!(
         "mirror {} → {} paket ({status})",
         mirror.name,
@@ -405,15 +444,24 @@ pub fn main(args: &[String]) -> io::Result<()> {
         "list" | "ls" => cmd_list(&args[1..]),
         "search" => cmd_search(&args[1..]),
         "info" => {
-            let name = args.get(1).map(String::as_str).ok_or_else(|| io::Error::other("pkg info <nama>"))?;
+            let name = args
+                .get(1)
+                .map(String::as_str)
+                .ok_or_else(|| io::Error::other("pkg info <nama>"))?;
             cmd_info(name)
         }
         "install" | "i" => {
-            let name = args.get(1).map(String::as_str).ok_or_else(|| io::Error::other("pkg install <nama>"))?;
+            let name = args
+                .get(1)
+                .map(String::as_str)
+                .ok_or_else(|| io::Error::other("pkg install <nama>"))?;
             cmd_install_spec(name, parse_flag(args, "--repo"))
         }
         "remove" | "rm" => {
-            let name = args.get(1).map(String::as_str).ok_or_else(|| io::Error::other("pkg remove <nama>"))?;
+            let name = args
+                .get(1)
+                .map(String::as_str)
+                .ok_or_else(|| io::Error::other("pkg remove <nama>"))?;
             cmd_remove(name)
         }
         "verify" => cmd_verify(args.get(1).map(String::as_str)),
@@ -475,7 +523,16 @@ fn cmd_keygen(args: &[String]) -> io::Result<()> {
     println!("kunci dibuat:");
     println!("  privat : {}", sign_priv().display());
     println!("  publik : {}", sign_pub().display());
-    println!("  sidik  : {}…", pubkey.iter().map(|b| format!("{b:02x}")).collect::<String>().chars().take(16).collect::<String>());
+    println!(
+        "  sidik  : {}…",
+        pubkey
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+            .chars()
+            .take(16)
+            .collect::<String>()
+    );
     Ok(())
 }
 
@@ -505,14 +562,19 @@ fn cmd_update(args: &[String]) -> io::Result<()> {
     Ok(())
 }
 
-fn collect_pkgs(only_repo: Option<&str>, only_installed: bool) -> io::Result<Vec<(String, IndexPkg)>> {
+fn collect_pkgs(
+    only_repo: Option<&str>,
+    only_installed: bool,
+) -> io::Result<Vec<(String, IndexPkg)>> {
     let indexes_dir = indexes_dir();
     let mut out: BTreeMap<String, IndexPkg> = BTreeMap::new();
     if indexes_dir.is_dir() {
         for e in fs::read_dir(&indexes_dir)? {
             let e = e?;
             let fname = e.file_name().to_string_lossy().into_owned();
-            let Some(name) = fname.strip_suffix(".json") else { continue };
+            let Some(name) = fname.strip_suffix(".json") else {
+                continue;
+            };
             if let Some(r) = only_repo {
                 if r != name {
                     continue;
@@ -546,13 +608,22 @@ fn cmd_list(args: &[String]) -> io::Result<()> {
         return Ok(());
     }
     for (name, p) in pkgs {
-        println!("{name} {}({}) — {}", p.version, fmt_size(p.size), p.description);
+        println!(
+            "{name} {}({}) — {}",
+            p.version,
+            fmt_size(p.size),
+            p.description
+        );
     }
     Ok(())
 }
 
 fn cmd_search(args: &[String]) -> io::Result<()> {
-    let q = args.first().map(String::as_str).unwrap_or("").to_lowercase();
+    let q = args
+        .first()
+        .map(String::as_str)
+        .unwrap_or("")
+        .to_lowercase();
     let pkgs = collect_pkgs(parse_flag(args, "--repo"), false)?;
     let hits: Vec<_> = pkgs
         .into_iter()
@@ -605,7 +676,9 @@ fn repo_of_index_containing(name: &str) -> io::Result<Option<String>> {
     for e in fs::read_dir(&indexes_dir)? {
         let e = e?;
         let fname = e.file_name().to_string_lossy().into_owned();
-        let Some(rname) = fname.strip_suffix(".json") else { continue };
+        let Some(rname) = fname.strip_suffix(".json") else {
+            continue;
+        };
         let Ok(idx) = read_index(rname) else { continue };
         if idx.packages.iter().any(|p| p.name == name) {
             return Ok(Some(rname.to_string()));
@@ -627,7 +700,10 @@ fn cmd_install_spec(spec: &str, only_repo: Option<&str>) -> io::Result<()> {
         if !path.exists() {
             return Err(io::Error::other(format!("file tidak ada: {p}")));
         }
-        let fname = path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| "paket".into());
+        let fname = path
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "paket".into());
         install_local_tarball(path, &fname, version)?;
         return Ok(());
     }
@@ -640,7 +716,8 @@ fn cmd_install_spec(spec: &str, only_repo: Option<&str>) -> io::Result<()> {
             pkg.version
         )));
     }
-    let repo = repo_of_index_containing(&name)?.ok_or_else(|| io::Error::other(format!("paket tidak di index mana pun: {name}")))?;
+    let repo = repo_of_index_containing(&name)?
+        .ok_or_else(|| io::Error::other(format!("paket tidak di index mana pun: {name}")))?;
     install_from_index(&name, &pkg, &repo)?;
     Ok(())
 }
@@ -792,7 +869,11 @@ fn walk_rel(root: &Path) -> io::Result<Vec<String>> {
             if p.is_dir() {
                 stack.push(p);
             } else {
-                let rel = p.strip_prefix(root).unwrap_or(&p).to_string_lossy().into_owned();
+                let rel = p
+                    .strip_prefix(root)
+                    .unwrap_or(&p)
+                    .to_string_lossy()
+                    .into_owned();
                 out.push(rel);
             }
         }
@@ -828,7 +909,11 @@ fn cmd_remove(name: &str) -> io::Result<()> {
     };
     cleanup_prefix_files(&info.files);
     save_installed(&inst)?;
-    println!("dihapus: {name} {} ({} file)", info.version, info.files.len());
+    println!(
+        "dihapus: {name} {} ({} file)",
+        info.version,
+        info.files.len()
+    );
     Ok(())
 }
 
@@ -843,14 +928,27 @@ fn cmd_verify(name: Option<&str>) -> io::Result<()> {
         }
         None => inst.pkgs.keys().cloned().collect(),
     };
-    let names = { let mut v = names; v.sort(); v };
+    let names = {
+        let mut v = names;
+        v.sort();
+        v
+    };
     let mut ok = true;
     for n in &names {
         let info = &inst.pkgs[n];
         // 1) Semua file ada?
-        let missing: Vec<_> = info.files.iter().filter(|f| !prefix_dir().join(f).exists()).cloned().collect();
+        let missing: Vec<_> = info
+            .files
+            .iter()
+            .filter(|f| !prefix_dir().join(f).exists())
+            .cloned()
+            .collect();
         if !missing.is_empty() {
-            println!("{n}: KORUP — {} file hilang: {}", missing.len(), missing.first().unwrap());
+            println!(
+                "{n}: KORUP — {} file hilang: {}",
+                missing.len(),
+                missing.first().unwrap()
+            );
             ok = false;
             continue;
         }
@@ -906,19 +1004,31 @@ fn cmd_mirrors(args: &[String]) -> io::Result<()> {
             Ok(())
         }
         "add" => {
-            let name = args.get(1).map(String::as_str).ok_or_else(|| io::Error::other("mirrors add <nama> <url>"))?;
-            let url = args.get(2).map(String::as_str).ok_or_else(|| io::Error::other("mirrors add <nama> <url>"))?;
+            let name = args
+                .get(1)
+                .map(String::as_str)
+                .ok_or_else(|| io::Error::other("mirrors add <nama> <url>"))?;
+            let url = args
+                .get(2)
+                .map(String::as_str)
+                .ok_or_else(|| io::Error::other("mirrors add <nama> <url>"))?;
             if m.mirrors.iter().any(|r| r.name == name) {
                 m.mirrors.retain(|r| r.name != name);
                 println!("mirror {name}: diganti");
             }
-            m.mirrors.push(Mirror { name: name.to_string(), url: url.to_string() });
+            m.mirrors.push(Mirror {
+                name: name.to_string(),
+                url: url.to_string(),
+            });
             save_mirrors(&m)?;
             println!("mirror {name} → {url}");
             Ok(())
         }
         "remove" | "rm" => {
-            let name = args.get(1).map(String::as_str).ok_or_else(|| io::Error::other("mirrors remove <nama>"))?;
+            let name = args
+                .get(1)
+                .map(String::as_str)
+                .ok_or_else(|| io::Error::other("mirrors remove <nama>"))?;
             let before = m.mirrors.len();
             m.mirrors.retain(|r| r.name != name);
             save_mirrors(&m)?;
@@ -929,7 +1039,9 @@ fn cmd_mirrors(args: &[String]) -> io::Result<()> {
             }
             Ok(())
         }
-        other => Err(io::Error::other(format!("perintah mirrors tak dikenal: {other}"))),
+        other => Err(io::Error::other(format!(
+            "perintah mirrors tak dikenal: {other}"
+        ))),
     }
 }
 
@@ -1000,10 +1112,7 @@ mod tests {
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     fn tmpdir() -> PathBuf {
         let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let d = std::env::temp_dir().join(format!(
-            "mterm-pkg-test-{}-{n}",
-            std::process::id()
-        ));
+        let d = std::env::temp_dir().join(format!("mterm-pkg-test-{}-{n}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
@@ -1029,7 +1138,10 @@ mod tests {
     fn mk_repo(home: &Path, repo_dir: &Path, with_key: bool) {
         let _ = fs::create_dir_all(repo_dir.join("pkgs"));
         make_pkg_src(&home.join("src1"), "", "halo");
-        build_tarball(&home.join("src1"), &repo_dir.join("pkgs").join("demo-1.0.0.tar.zst"));
+        build_tarball(
+            &home.join("src1"),
+            &repo_dir.join("pkgs").join("demo-1.0.0.tar.zst"),
+        );
         if with_key {
             let seed = random_seed().unwrap();
             save_priv(&seed).unwrap();
@@ -1057,17 +1169,24 @@ mod tests {
         let repo = tmpdir().join("repo");
         let _ = fs::create_dir_all(repo.join("pkgs"));
         make_pkg_src(&home.join("src1"), "", "halo");
-        build_tarball(&home.join("src1"), &repo.join("pkgs").join("demo-1.0.0.tar.zst"));
+        build_tarball(
+            &home.join("src1"),
+            &repo.join("pkgs").join("demo-1.0.0.tar.zst"),
+        );
         repo_index(&repo).unwrap();
         assert!(repo.join("index.json").exists());
         assert!(!repo.join("index.json.sig").exists());
-        let idx: Index = serde_json::from_str(&fs::read_to_string(repo.join("index.json")).unwrap()).unwrap();
+        let idx: Index =
+            serde_json::from_str(&fs::read_to_string(repo.join("index.json")).unwrap()).unwrap();
         assert_eq!(idx.packages.len(), 1);
         assert_eq!(idx.packages[0].name, "demo");
         assert_eq!(idx.packages[0].version, "1.0.0");
         assert!(!idx.packages[0].parts.is_empty());
         // bagian tercatat sesuai sha
-        assert!(repo.join("parts").join(&idx.packages[0].parts[0].sha256).exists());
+        assert!(repo
+            .join("parts")
+            .join(&idx.packages[0].parts[0].sha256)
+            .exists());
     }
 
     #[test]
@@ -1077,7 +1196,12 @@ mod tests {
         let repo = tmpdir().join("repo");
         mk_repo(&home, &repo, true);
         // mirror lokal
-        cmd_mirrors(&["add".to_string(), "local".into(), format!("file://{}", repo.display())]).unwrap();
+        cmd_mirrors(&[
+            "add".to_string(),
+            "local".into(),
+            format!("file://{}", repo.display()),
+        ])
+        .unwrap();
         cmd_update(&[]).unwrap();
         let st = load_installed().unwrap(); // sanity: indeks ter-simpan
         let idx = read_index("local").unwrap();
@@ -1096,7 +1220,12 @@ mod tests {
         let home = sandbox();
         let repo = tmpdir().join("repo");
         mk_repo(&home, &repo, false);
-        cmd_mirrors(&["add".to_string(), "local2".into(), format!("file://{}", repo.display())]).unwrap();
+        cmd_mirrors(&[
+            "add".to_string(),
+            "local2".into(),
+            format!("file://{}", repo.display()),
+        ])
+        .unwrap();
         cmd_update(&[]).unwrap();
         assert!(read_index("local2").is_ok());
     }
@@ -1108,12 +1237,23 @@ mod tests {
         let repo = tmpdir().join("repo");
         let _ = fs::create_dir_all(repo.join("pkgs"));
         make_pkg_src(&home.join("src1"), "", "halo");
-        build_tarball(&home.join("src1"), &repo.join("pkgs").join("demo-1.0.0.tar.zst"));
+        build_tarball(
+            &home.join("src1"),
+            &repo.join("pkgs").join("demo-1.0.0.tar.zst"),
+        );
         repo_index(&repo).unwrap();
-        cmd_mirrors(&["add".to_string(), "local3".into(), format!("file://{}", repo.display())]).unwrap();
+        cmd_mirrors(&[
+            "add".to_string(),
+            "local3".into(),
+            format!("file://{}", repo.display()),
+        ])
+        .unwrap();
         cmd_update(&[]).unwrap();
         cmd_install_spec("demo", None).unwrap();
-        assert!(prefix_dir().join("data.txt").exists(), "file dari tarball terpasang");
+        assert!(
+            prefix_dir().join("data.txt").exists(),
+            "file dari tarball terpasang"
+        );
         let inst = load_installed().unwrap();
         assert!(inst.pkgs.contains_key("demo"));
         // 2nd install: reuse — jumlah part cache tidak bertambah
@@ -1123,7 +1263,10 @@ mod tests {
         assert_eq!(n1, n2, "delta: tidak unduh part baru");
         // ganti versi (misal tambah file besar) → perlu part baru? pakai versi-copy
         cmd_remove("demo").unwrap();
-        assert!(!prefix_dir().join("data.txt").exists(), "file ikut terhapus");
+        assert!(
+            !prefix_dir().join("data.txt").exists(),
+            "file ikut terhapus"
+        );
         assert!(load_installed().unwrap().pkgs.is_empty());
     }
 
@@ -1133,7 +1276,12 @@ mod tests {
         let home = sandbox();
         let repo = tmpdir().join("repo");
         let _ = fs::create_dir_all(repo.join("pkgs"));
-        cmd_mirrors(&["add".to_string(), "d".into(), format!("file://{}", repo.display())]).unwrap();
+        cmd_mirrors(&[
+            "add".to_string(),
+            "d".into(),
+            format!("file://{}", repo.display()),
+        ])
+        .unwrap();
         // PRNG pseudo-random supaya zstd tidak bisa mengkompres → tarball > 1 MiB
         let mut x: u64 = 0x9e3779b97f4a7c15;
         let mut filler = Vec::with_capacity(3 * 1_100_000);
@@ -1147,7 +1295,10 @@ mod tests {
         // Fase 1: versi 1 terpasang (file besar + data.txt "a").
         make_pkg_src(&home.join("v1"), "", "a");
         fs::write(home.join("v1").join("big.bin"), &filler).unwrap();
-        build_tarball(&home.join("v1"), &repo.join("pkgs").join("app-1.0.0.tar.zst"));
+        build_tarball(
+            &home.join("v1"),
+            &repo.join("pkgs").join("app-1.0.0.tar.zst"),
+        );
         repo_index(&repo).unwrap();
         cmd_update(&[]).unwrap();
         cmd_install_spec("app", None).unwrap();
@@ -1158,11 +1309,17 @@ mod tests {
         let _ = fs::remove_file(repo.join("pkgs").join("app-1.0.0.tar.zst"));
         make_pkg_src(&home.join("v2"), "", "b");
         fs::write(home.join("v2").join("big.bin"), &filler).unwrap();
-        build_tarball(&home.join("v2"), &repo.join("pkgs").join("app-2.0.0.tar.zst"));
+        build_tarball(
+            &home.join("v2"),
+            &repo.join("pkgs").join("app-2.0.0.tar.zst"),
+        );
         repo_index(&repo).unwrap();
         cmd_update(&[]).unwrap();
         cmd_install_spec("app", None).unwrap();
-        assert!(prefix_dir().join("data.txt").exists(), "file setelah upgrade ada");
+        assert!(
+            prefix_dir().join("data.txt").exists(),
+            "file setelah upgrade ada"
+        );
         let inst = load_installed().unwrap();
         assert_eq!(inst.pkgs["app"].version, "2.0.0");
         // delta nyata: ada part yang dipakai ulang antar versi
@@ -1187,7 +1344,12 @@ mod tests {
         make_pkg_src(&home.join("s"), "", "x");
         build_tarball(&home.join("s"), &repo.join("pkgs").join("t-1.0.0.tar.zst"));
         repo_index(&repo).unwrap();
-        cmd_mirrors(&["add".to_string(), "v".into(), format!("file://{}", repo.display())]).unwrap();
+        cmd_mirrors(&[
+            "add".to_string(),
+            "v".into(),
+            format!("file://{}", repo.display()),
+        ])
+        .unwrap();
         cmd_update(&[]).unwrap();
         cmd_install_spec("t", None).unwrap();
         // hapus satu file

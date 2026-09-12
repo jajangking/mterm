@@ -30,8 +30,13 @@ fn emu_thread_feeds_engine_main_thread_polls() {
         scrollback_cap: 1000,
     })));
 
-    let session = Session::spawn("sh", &["-c".into(), "printf 'thread-model-ok\n'; exit 0".into()], 40, 10)
-        .expect("spawn sh");
+    let session = Session::spawn(
+        "sh",
+        &["-c".into(), "printf 'thread-model-ok\n'; exit 0".into()],
+        40,
+        10,
+    )
+    .expect("spawn sh");
 
     let feed = {
         let term = Arc::clone(&term);
@@ -59,7 +64,12 @@ fn emu_thread_feeds_engine_main_thread_polls() {
         std::thread::sleep(Duration::from_millis(10));
     }
 
-    assert_eq!(runner.exit_code(), 0, "exit 0, running={}", runner.is_running());
+    assert_eq!(
+        runner.exit_code(),
+        0,
+        "exit 0, running={}",
+        runner.is_running()
+    );
     let t = if text.is_empty() {
         grid_text(&term.lock().unwrap())
     } else {

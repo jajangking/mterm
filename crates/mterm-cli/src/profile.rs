@@ -123,12 +123,18 @@ pub fn main(args: &[String]) -> io::Result<()> {
         }
         "verify" => {
             let name = args.get(1).ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidInput, "usage: mterm profile verify <name>")
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "usage: mterm profile verify <name>",
+                )
             })?;
             let p = profiles.available.get(name).ok_or_else(|| {
                 io::Error::new(io::ErrorKind::NotFound, format!("profile {name} tidak ada"))
             })?;
-            println!("profile {name}: {} (rilis diverifikasi)", p.runtimes.join(", "));
+            println!(
+                "profile {name}: {} (rilis diverifikasi)",
+                p.runtimes.join(", ")
+            );
             let mut ok = 0;
             let mut missing = 0;
             for rt in &p.runtimes {

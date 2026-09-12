@@ -42,7 +42,10 @@ fn pty_output_survives_save_restore() {
     })));
     let session = Session::spawn(
         "sh",
-        &["-c".into(), "printf 'first-run\n'; sleep 3; printf 'second-burst\n'; exit 0".into()],
+        &[
+            "-c".into(),
+            "printf 'first-run\n'; sleep 3; printf 'second-burst\n'; exit 0".into(),
+        ],
         40,
         8,
     )

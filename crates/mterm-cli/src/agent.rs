@@ -683,7 +683,10 @@ fn print_agent(dir: &Path) {
     }
     match mterm_pty::PidFile::read(pid_for(dir)) {
         Some(p) if mterm_pty::PidFile::alive(p) => {
-            println!("  {:<45} pid {p} socket:{sock} sesi:{msgs} msg", dir.display());
+            println!(
+                "  {:<45} pid {p} socket:{sock} sesi:{msgs} msg",
+                dir.display()
+            );
         }
         _ => {
             println!("  {:<45} stop socket:{sock} sesi:{msgs} msg", dir.display());
@@ -716,10 +719,7 @@ pub fn main(args: &[String]) -> io::Result<()> {
             let sock = socket_for(&dir);
             if let Some(pid) = mterm_pty::PidFile::read(pid_for(&dir)) {
                 if mterm_pty::PidFile::alive(pid) {
-                    println!(
-                        "agent sudah jalan utk {} (pid {pid})",
-                        ws.display()
-                    );
+                    println!("agent sudah jalan utk {} (pid {pid})", ws.display());
                     return Ok(());
                 }
             }
@@ -772,11 +772,7 @@ pub fn main(args: &[String]) -> io::Result<()> {
             let _ = fs::remove_file(socket_for(&dir));
             println!("agent stop, restart…");
             let ws_arg = ws.display().to_string();
-            main(&[
-                "start".to_string(),
-                "--workspace".to_string(),
-                ws_arg,
-            ])
+            main(&["start".to_string(), "--workspace".to_string(), ws_arg])
         }
         "list" => {
             for d in scan_agents()? {
@@ -789,20 +785,18 @@ pub fn main(args: &[String]) -> io::Result<()> {
             match pid {
                 Some(p) if mterm_pty::PidFile::alive(p) => {
                     let sock = socket_for(&dir).exists();
-                    println!(
-                        "agent jalan utk {} (pid {p}, socket: {sock})",
-                        ws.display()
-                    );
+                    println!("agent jalan utk {} (pid {p}, socket: {sock})", ws.display());
                 }
-                _ => println!(
-                    "agent tidak jalan untuk {}",
-                    ws.display()
-                ),
+                _ => println!("agent tidak jalan untuk {}", ws.display()),
             }
             if let Ok(s) = fs::read_to_string(session_for(&dir)) {
                 if let Ok(v) = serde_json::from_str::<Value>(&s) {
                     let n = v["messages"].as_array().map(|a| a.len()).unwrap_or(0);
-                    println!("sesi: {} pesan di {}", n, v["workspace"].as_str().unwrap_or("-"));
+                    println!(
+                        "sesi: {} pesan di {}",
+                        n,
+                        v["workspace"].as_str().unwrap_or("-")
+                    );
                 }
             }
             if !stderr_bundle_for_dir(&dir).is_empty() {
@@ -1106,7 +1100,11 @@ mod tests {
 
     #[test]
     fn resolve_workspace_memilih_arg_env_atau_cwd() {
-        let args = vec!["start".to_string(), "--workspace".to_string(), "/ws/x".to_string()];
+        let args = vec![
+            "start".to_string(),
+            "--workspace".to_string(),
+            "/ws/x".to_string(),
+        ];
         assert_eq!(resolve_workspace(&args), PathBuf::from("/ws/x"));
 
         std::env::set_var("MTERM_WORKSPACE", "/ws/env");
@@ -1115,13 +1113,15 @@ mod tests {
         std::env::remove_var("MTERM_WORKSPACE");
 
         let empty: Vec<String> = vec![];
-        assert!(!resolve_workspace(&empty).as_os_str().is_empty(), "fallback cwd");
+        assert!(
+            !resolve_workspace(&empty).as_os_str().is_empty(),
+            "fallback cwd"
+        );
     }
 
     #[test]
     fn stderr_collector_berisi_exit_code_dan_tail() {
-        let dir = std::env::temp_dir()
-            .join(format!("mterm-agent-ws-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("mterm-agent-ws-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -1139,8 +1139,7 @@ mod tests {
 
     #[test]
     fn scan_agents_menemukan_dir_workspace_dengan_pid() {
-        let root = std::env::temp_dir()
-            .join(format!("mterm-agent-scan-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("mterm-agent-scan-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         // buat satu dir state buatan (pid mati).
         fs::create_dir_all(root.join("ws_satu")).unwrap();
@@ -1163,13 +1162,15 @@ mod tests {
         assert_eq!(strip_ansi("a\x1b[0;1;31merror\x1b[0m b"), "aerror b");
         assert_eq!(strip_ansi("teks polos"), "teks polos");
         assert_eq!(strip_ansi("\x1b[2J\x1b[Hhalo"), "halo");
-        assert!(strip_ansi("\x1b]9;title\x1b\\").contains("title"), "OSC dibiarkan");
+        assert!(
+            strip_ansi("\x1b]9;title\x1b\\").contains("title"),
+            "OSC dibiarkan"
+        );
     }
 
     #[test]
     fn stderr_bundle_dimasukkan_ke_system_msg_agent() {
-        let dir = std::env::temp_dir()
-            .join(format!("mterm-agent-std-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("mterm-agent-std-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::write(stderr_for(&dir), "exit:127\nbash: gcc: command not found").unwrap();
@@ -1211,7 +1212,10 @@ mod tests {
         t.join().unwrap();
 
         let history = seen.lock().unwrap();
-        let sys = history.iter().find(|m| m.role == "system").expect("ada system msg");
+        let sys = history
+            .iter()
+            .find(|m| m.role == "system")
+            .expect("ada system msg");
         assert!(
             sys.content.contains("stderr output"),
             "stderr label masuk: {}",

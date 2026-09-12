@@ -237,7 +237,10 @@ mod tests {
 
     #[test]
     fn runner_input_channel_reaches_shell() {
-        let cmd = vec!["-c".into(), "read -r line; printf 'got:%s' \"$line\"".into()];
+        let cmd = vec![
+            "-c".into(),
+            "read -r line; printf 'got:%s' \"$line\"".into(),
+        ];
         let session = sh(&cmd);
         let (buf, f) = recorder();
         let runner = EmuRunner::spawn(session, f).unwrap();

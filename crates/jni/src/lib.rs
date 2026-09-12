@@ -157,7 +157,15 @@ fn scroll_max(handle: u64) -> i32 {
 /// `sgr_mouse(handle, code, mods, release, x, y, out) -> n` — encode klik/wheel
 /// ke SGR escape untuk dikirim ke shell via `runner_input`. `n <= 0` kalau
 /// mode mouse belum aktif di TUI.
-fn sgr_mouse(handle: u64, code: i32, mods: i32, release: bool, x: i32, y: i32, out: &mut [u8]) -> i32 {
+fn sgr_mouse(
+    handle: u64,
+    code: i32,
+    mods: i32,
+    release: bool,
+    x: i32,
+    y: i32,
+    out: &mut [u8],
+) -> i32 {
     let Some(shared) = get(handle) else {
         return -1;
     };
@@ -383,7 +391,10 @@ fn runner_resize(handle: u64, cols: i32, rows: i32) -> bool {
         return false;
     };
     match g.as_ref() {
-        Some(r) => r.resize(clamp_dim(cols, MAX_COLS) as u16, clamp_dim(rows, MAX_ROWS) as u16),
+        Some(r) => r.resize(
+            clamp_dim(cols, MAX_COLS) as u16,
+            clamp_dim(rows, MAX_ROWS) as u16,
+        ),
         None => false,
     }
 }
@@ -634,7 +645,11 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeSaveState(
             return JNI_FALSE;
         };
         drop(t);
-        if std::fs::write(&path, json).is_ok() { JNI_TRUE } else { JNI_FALSE }
+        if std::fs::write(&path, json).is_ok() {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
     })
 }
 
@@ -739,15 +754,7 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeSgrMouse(
             Err(_) => return -1,
         };
         let mut raw = vec![0u8; cap];
-        let n = sgr_mouse(
-            handle as u64,
-            code,
-            mods,
-            release != 0,
-            x,
-            y,
-            &mut raw,
-        );
+        let n = sgr_mouse(handle as u64, code, mods, release != 0, x, y, &mut raw);
         if n > 0 {
             let bytes: Vec<i8> = raw[..n as usize].iter().map(|&b| b as i8).collect();
             if env.set_byte_array_region(&out, 0, &bytes).is_err() {
@@ -945,11 +952,10 @@ mod tests {
             Ok(j) => j,
             Err(_) => return 0,
         };
-        let terminal =
-            match mterm_core::terminal::Terminal::from_json(&json) {
-                Ok(t) => t,
-                Err(_) => return 0,
-            };
+        let terminal = match mterm_core::terminal::Terminal::from_json(&json) {
+            Ok(t) => t,
+            Err(_) => return 0,
+        };
         alloc_handle(Arc::new(Mutex::new(terminal)))
     }
 
@@ -969,14 +975,23 @@ mod tests {
         let code = wait_exit(h, 5000);
         assert_eq!(code, 0, "exit code 0");
         let text = grid_text(h);
-        assert!(text.contains("jni-runner-ok"), "terminal berisi output: {text:?}");
+        assert!(
+            text.contains("jni-runner-ok"),
+            "terminal berisi output: {text:?}"
+        );
         destroy(h);
     }
 
     #[test]
     fn session_exit_code_is_signal_or_nonzero() {
         let h = init_term(40, 10);
-        assert!(spawn_session(h, "sh", vec!["-c".into(), "exit 7".into()], 40, 10));
+        assert!(spawn_session(
+            h,
+            "sh",
+            vec!["-c".into(), "exit 7".into()],
+            40,
+            10
+        ));
         assert_eq!(wait_exit(h, 5000), 7, "exit 7");
         destroy(h);
     }
@@ -984,15 +999,16 @@ mod tests {
     #[test]
     fn session_input_reaches_shell() {
         let h = init_term(40, 10);
-        assert!(
-            spawn_session(
-                h,
-                "sh",
-                vec!["-c".into(), "read -r line; printf 'got:%s' \"$line\"".into()],
-                40,
-                10,
-            )
-        );
+        assert!(spawn_session(
+            h,
+            "sh",
+            vec![
+                "-c".into(),
+                "read -r line; printf 'got:%s' \"$line\"".into()
+            ],
+            40,
+            10,
+        ));
         assert!(runner_input(h, b"halo\n"), "input ke channel terkirim");
         let code = wait_exit(h, 5000);
         assert_eq!(code, 0, "shell selesai");
@@ -1006,9 +1022,13 @@ mod tests {
     #[test]
     fn respawn_blocked_while_running_then_allowed() {
         let h = init_term(40, 10);
-        assert!(
-            spawn_session(h, "sh", vec!["-c".into(), "sleep 1; exit 0".into()], 40, 10)
-        );
+        assert!(spawn_session(
+            h,
+            "sh",
+            vec!["-c".into(), "sleep 1; exit 0".into()],
+            40,
+            10
+        ));
         // masih jalan → respawn ditolak
         assert!(
             !spawn_session(h, "sh", vec!["-c".into(), "exit 0".into()], 40, 10),
@@ -1018,9 +1038,13 @@ mod tests {
         let code = wait_exit(h, 5000);
         assert_eq!(code, 0, "sleep selesai");
         // sudah selesai → respawn boleh
-        assert!(
-            spawn_session(h, "sh", vec!["-c".into(), "printf 'again\n'; exit 0".into()], 40, 10)
-        );
+        assert!(spawn_session(
+            h,
+            "sh",
+            vec!["-c".into(), "printf 'again\n'; exit 0".into()],
+            40,
+            10
+        ));
         assert_eq!(wait_exit(h, 5000), 0, "spawn kedua jalan");
         let again = grid_text(h);
         assert!(again.contains("again"), "output respawn: {again:?}");
@@ -1030,21 +1054,37 @@ mod tests {
     #[test]
     fn runner_stop_marks_not_running() {
         let h = init_term(40, 10);
-        assert!(spawn_session(h, "sh", vec!["-c".into(), "sleep 5; exit 0".into()], 40, 10));
+        assert!(spawn_session(
+            h,
+            "sh",
+            vec!["-c".into(), "sleep 5; exit 0".into()],
+            40,
+            10
+        ));
         assert_eq!(runner_exit(h), RUNNING);
         runner_stop(h);
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2000);
         while runner_exit(h) == RUNNING && std::time::Instant::now() < deadline {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
-        assert_ne!(runner_exit(h), RUNNING, "stop → thread keluar, code tercatat");
+        assert_ne!(
+            runner_exit(h),
+            RUNNING,
+            "stop → thread keluar, code tercatat"
+        );
         destroy(h);
     }
 
     #[test]
     fn destroy_shuts_down_runner_thread() {
         let h = init_term(40, 10);
-        assert!(spawn_session(h, "sh", vec!["-c".into(), "sleep 5; exit 0".into()], 40, 10));
+        assert!(spawn_session(
+            h,
+            "sh",
+            vec!["-c".into(), "sleep 5; exit 0".into()],
+            40,
+            10
+        ));
         destroy(h); // harus join thread tanpa hang/panic
         assert_eq!(runner_exit(h), RUNNING, "slot runner ikut di-drop");
     }
@@ -1059,7 +1099,11 @@ mod tests {
         let max = scroll_max(h);
         assert!(max >= 2, "ada scrollback, max={max}");
 
-        assert_eq!(cell_at(h, 0, 0).map(|c| c.2), Some('l' as u32), "bottom = l6? atau l5");
+        assert_eq!(
+            cell_at(h, 0, 0).map(|c| c.2),
+            Some('l' as u32),
+            "bottom = l6? atau l5"
+        );
         set_scroll_offset(h, max);
         let first = cell_at(h, 0, 0).map(|c| c.2 as u8 as char);
         assert_eq!(first, Some('l'), "scroll penuh → mulai dari sejarah");
@@ -1111,7 +1155,10 @@ mod tests {
         let h = init_term(10, 4);
         write(h, b"\x1b[31mHELLO\x1b[0m\nsecond\n");
         let fg_cell = cell_at(h, 0, 0);
-        assert!(fg_cell.unwrap().0 != 0, "warna merah tersimpan sebelum save");
+        assert!(
+            fg_cell.unwrap().0 != 0,
+            "warna merah tersimpan sebelum save"
+        );
 
         let path = std::env::temp_dir().join("mterm_state_test.json");
         assert!(save_state(h, &path), "save ok");
@@ -1121,7 +1168,11 @@ mod tests {
         assert!(h2 > 0, "load handle");
         let fg_cell2 = cell_at(h2, 0, 0);
         assert_eq!(fg_cell.map(|c| c.2), fg_cell2.map(|c| c.2), "warna sama");
-        assert_eq!(cell_at(h2, 0, 0).map(|c| c.1), fg_cell.map(|c| c.1), "bg sama");
+        assert_eq!(
+            cell_at(h2, 0, 0).map(|c| c.1),
+            fg_cell.map(|c| c.1),
+            "bg sama"
+        );
         destroy(h2);
         let _ = std::fs::remove_file(path);
     }
@@ -1129,14 +1180,19 @@ mod tests {
     #[test]
     fn save_to_bad_path_returns_false() {
         let h = init_term(10, 4);
-        assert!(!save_state(h, &std::path::PathBuf::from("/dev/null/notadir/x.json")));
+        assert!(!save_state(
+            h,
+            &std::path::PathBuf::from("/dev/null/notadir/x.json")
+        ));
         destroy(h);
     }
 
     #[test]
     fn load_missing_file_returns_zero() {
         assert_eq!(
-            load_state(&std::path::PathBuf::from("/tmp/mterm_definitely_missing.json")),
+            load_state(&std::path::PathBuf::from(
+                "/tmp/mterm_definitely_missing.json"
+            )),
             0,
             "file tak ada → 0"
         );

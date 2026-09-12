@@ -12,7 +12,12 @@ pub struct Runtime {
     pub optional: bool,
 }
 
-const fn rt(name: &'static str, bins: &'static [&'static str], flag: &'static str, optional: bool) -> Runtime {
+const fn rt(
+    name: &'static str,
+    bins: &'static [&'static str],
+    flag: &'static str,
+    optional: bool,
+) -> Runtime {
     Runtime {
         name,
         bins,
@@ -43,9 +48,7 @@ pub fn version_of(bins: &[&str], flag: &str) -> Option<(String, String)> {
     for bin in bins {
         let out = Command::new("sh")
             .arg("-c")
-            .arg(format!(
-                "command -v {bin} 2>/dev/null || true"
-            ))
+            .arg(format!("command -v {bin} 2>/dev/null || true"))
             .output()
             .ok()?;
         if !out.status.success() || out.stdout.is_empty() {

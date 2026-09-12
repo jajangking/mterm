@@ -51,7 +51,10 @@ pub fn parse_pkg_index(
     let mut buf: [Option<&str>; 3] = [None, None, None];
     for line in pkg_index.lines() {
         if let Some(val) = line.strip_prefix("Package:") {
-            let complete = current_pkg == Some(pkg_name) && buf[0].is_some() && buf[1].is_some() && buf[2].is_some();
+            let complete = current_pkg == Some(pkg_name)
+                && buf[0].is_some()
+                && buf[1].is_some()
+                && buf[2].is_some();
             if complete {
                 let hit = version_filter.is_none_or(|vf| buf[0].unwrap().contains(vf));
                 if hit {
@@ -76,7 +79,12 @@ pub fn parse_pkg_index(
             if current_pkg == Some(pkg_name) {
                 buf[2] = Some(v.trim());
             }
-        } else if line.is_empty() && current_pkg == Some(pkg_name) && buf[0].is_some() && buf[1].is_some() && buf[2].is_some() {
+        } else if line.is_empty()
+            && current_pkg == Some(pkg_name)
+            && buf[0].is_some()
+            && buf[1].is_some()
+            && buf[2].is_some()
+        {
             let hit = version_filter.is_none_or(|vf| buf[0].unwrap().contains(vf));
             if hit {
                 return Some((
@@ -110,10 +118,7 @@ pub fn packages_index_url() -> String {
 
 /// Cari versi node dari index + filter versi (kalau ada) dari argumen/env.
 /// Return `(version, filename, sha256)`.
-pub fn resolve_node_info(
-    index_text: &str,
-    args: &[String],
-) -> Option<(String, String, String)> {
+pub fn resolve_node_info(index_text: &str, args: &[String]) -> Option<(String, String, String)> {
     let vf = node_version_from_args(args);
     parse_pkg_index(index_text, "nodejs", vf.as_deref())
 }
@@ -161,9 +166,7 @@ fn sha256_of(path: &Path) -> Option<String> {
 fn run(script: &str) -> io::Result<()> {
     let status = Command::new("sh").arg("-c").arg(script).status()?;
     if !status.success() {
-        return Err(io::Error::other(format!(
-            "perintah gagal: {script}"
-        )));
+        return Err(io::Error::other(format!("perintah gagal: {script}")));
     }
     Ok(())
 }
@@ -180,9 +183,7 @@ fn cmd_status() -> io::Result<()> {
             println!("  → {}", node_path.display());
         }
     } else {
-        println!(
-            "  (belum ada tool ter-install — `mterm tool install node`)"
-        );
+        println!("  (belum ada tool ter-install — `mterm tool install node`)");
     }
     Ok(())
 }
@@ -190,9 +191,7 @@ fn cmd_status() -> io::Result<()> {
 fn cmd_install(args: &[String]) -> io::Result<()> {
     let name = args.first().map(String::as_str).unwrap_or("node");
     if name != "node" {
-        return Err(io::Error::other(
-            "tool yang didukung sekarang: node",
-        ));
+        return Err(io::Error::other("tool yang didukung sekarang: node"));
     }
 
     eprintln!("unduh index paket Termux …");
@@ -200,11 +199,8 @@ fn cmd_install(args: &[String]) -> io::Result<()> {
     let index_text = fetch_gzip(&index_gz_url)
         .ok_or_else(|| io::Error::other("gagal ambil Packages.gz dari repo Termux"))?;
 
-    let (version, filename, expected_sha) =
-        resolve_node_info(&index_text, args)
-            .ok_or_else(|| io::Error::other(
-                "nodejs tidak ditemukan di index repo (filter?)",
-            ))?;
+    let (version, filename, expected_sha) = resolve_node_info(&index_text, args)
+        .ok_or_else(|| io::Error::other("nodejs tidak ditemukan di index repo (filter?)"))?;
     eprintln!("node {version} ({ARCH})");
 
     let deb_url = deb_url(&filename);
@@ -219,8 +215,7 @@ fn cmd_install(args: &[String]) -> io::Result<()> {
     }
 
     // Rilis terverifikasi: checksum SHA256 dari Packages.gz index.
-    let actual = sha256_of(&deb_path)
-        .ok_or_else(|| io::Error::other("tidak bisa sha256sum"))?;
+    let actual = sha256_of(&deb_path).ok_or_else(|| io::Error::other("tidak bisa sha256sum"))?;
     if expected_sha != actual {
         return Err(io::Error::other(format!(
             "checksum mismatch: expected {expected_sha}, actual {actual}. Hapus {} lalu ulangi.",
@@ -241,9 +236,7 @@ fn cmd_install(args: &[String]) -> io::Result<()> {
     let data_tar = extract_tmp.join("data.tar.xz");
     if !data_tar.exists() {
         let _ = fs::remove_dir_all(&extract_tmp);
-        return Err(io::Error::other(
-            "deb tidak mengandung data.tar.xz",
-        ));
+        return Err(io::Error::other("deb tidak mengandung data.tar.xz"));
     }
     let _ = fs::remove_dir_all(installed_dir());
     fs::create_dir_all(installed_dir())?;
@@ -401,8 +394,7 @@ SHA256: bb000000000000000000000000000000000000000000000000000000000000bb
 
     #[test]
     fn marker_baca_dan_trim_dari_tempdir() {
-        let t = std::env::temp_dir()
-            .join(format!("mterm_tool_test_{}", std::process::id()));
+        let t = std::env::temp_dir().join(format!("mterm_tool_test_{}", std::process::id()));
         let _ = fs::remove_dir_all(&t);
         fs::create_dir_all(&t).unwrap();
         fs::write(t.join("VERSION"), " 22.13.1\n").unwrap();
