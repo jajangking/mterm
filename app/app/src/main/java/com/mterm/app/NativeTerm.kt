@@ -30,6 +30,21 @@ object NativeTerm {
     external fun nativeRunnerExit(handle: Long): Int
     external fun nativeRunnerInput(handle: Long, bytes: ByteArray): Boolean
     external fun nativeRunnerResize(handle: Long, cols: Int, rows: Int): Boolean
+
+    // Viewport scrollback (Fase 3 scroll/selection)
+    external fun nativeScrollOffset(handle: Long, offset: Int)
+    external fun nativeScrollMax(handle: Long): Int
+
+    // Mouse input → SGR escape (dikirim ke shell via runnerInput).
+    external fun nativeSgrMouse(
+        handle: Long,
+        code: Int,
+        mods: Int,
+        release: Boolean,
+        x: Int,
+        y: Int,
+        out: ByteArray,
+    ): Int
 }
 
 /** Event bukan-render dari Rust core: title, bell, mouse tracking. */
@@ -88,6 +103,22 @@ class TermSession(private val handle: Long) {
     /** Resize engine + PTY winsize biar sinkron. */
     fun sessionResize(cols: Int, rows: Int): Boolean =
         NativeTerm.nativeRunnerResize(handle, cols, rows)
+
+    /** Scroll viewport ke offset baris (0 = ikut bottom). */
+    fun scrollTo(offset: Int) = NativeTerm.nativeScrollOffset(handle, offset)
+
+    /** Batas scrollback yang bisa dilihat. */
+    fun scrollMax(): Int = NativeTerm.nativeScrollMax(handle)
+
+    /**
+     * Encode mouse/touch → byte SGR. Kirim hasilnya ke [input]. Kembalikan
+     * ByteArray kosong kalau mode mouse belum aktif di TUI.
+     */
+    fun sgrMouse(code: Int, mods: Int, release: Boolean, x: Int, y: Int): ByteArray {
+        val out = ByteArray(32)
+        val n = NativeTerm.nativeSgrMouse(handle, code, mods, release, x, y, out)
+        return if (n > 0) out.copyOf(n) else ByteArray(0)
+    }
 
     /** Ambil event non-render berikutnya (title/bell); null kalau kosong. */
     fun takeEvent(): TermEvent? {

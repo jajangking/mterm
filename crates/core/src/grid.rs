@@ -173,6 +173,27 @@ impl Grid {
         &self.lines[y.min(self.rows.saturating_sub(1))]
     }
 
+    /// Baris untuk viewport yang di-scroll `offset` baris ke atas dari bawah.
+    /// `offset == 0` = ikut bottom (baris layar utama). Saat scrolled,
+    /// baris diambil dari scrollback lalu layar utama (chronologis).
+    pub fn view_line(&self, y: usize, offset: usize) -> &Line {
+        let sb = self.scrollback.len();
+        let k = offset.min(sb);
+        if k == 0 {
+            return self.line(y);
+        }
+        let idx = sb - k + y; // mulai dari sb-k; idx >= sb → layar utama
+        if idx < sb {
+            self.scrollback.get(idx)
+        } else {
+            &self.lines[(idx - sb).min(self.rows.saturating_sub(1))]
+        }
+    }
+
+    pub fn scrollback_len(&self) -> usize {
+        self.scrollback.len()
+    }
+
     /// Akses cell mutable; `None` kalau x di luar kolom (y di-clamp).
     pub fn cell_at_mut(&mut self, x: usize, y: usize) -> Option<&mut Cell> {
         if x >= self.cols {
@@ -274,6 +295,10 @@ impl Scrollback {
 
     pub fn len(&self) -> usize {
         self.lines.len()
+    }
+
+    pub fn get(&self, i: usize) -> &Line {
+        &self.lines[i.min(self.lines.len().saturating_sub(1))]
     }
 
     pub fn is_empty(&self) -> bool {

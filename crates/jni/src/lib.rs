@@ -118,19 +118,68 @@ fn resize_term(handle: u64, cols: i32, rows: i32) {
     t.resize(clamp_dim(cols, MAX_COLS), clamp_dim(rows, MAX_ROWS));
 }
 
-/// `cell_at(handle, x, y) -> Option<(fg_rgb24, bg_rgb24, ch)>`.
+/// `cell_at(handle, x, y) -> Option<(fg_rgb24, bg_rgb24, ch)>` — hormati
+/// viewport (scrollback) yang sedang diset via `set_scroll_offset`.
 fn cell_at(handle: u64, x: i32, y: i32) -> Option<(u32, u32, u32)> {
     let shared = get(handle)?;
     let t = shared.lock().ok()?;
     if x < 0 || y < 0 || x as usize >= t.cols() || y as usize >= t.rows() {
         return None;
     }
-    let cell = &t.grid.line(y as usize).cells[x as usize];
+    let cell = &t.view_line(y as usize).cells[x as usize];
     Some((
         color_u32(cell.attrs.fg),
         color_u32(cell.attrs.bg),
         cell.ch as u32,
     ))
+}
+
+fn set_scroll_offset(handle: u64, k: i32) {
+    let Some(shared) = get(handle) else {
+        return;
+    };
+    let Ok(mut t) = shared.lock() else {
+        return;
+    };
+    t.set_scroll_offset(k.max(0) as usize);
+}
+
+fn scroll_max(handle: u64) -> i32 {
+    let Some(shared) = get(handle) else {
+        return 0;
+    };
+    let Ok(t) = shared.lock() else {
+        return 0;
+    };
+    t.scrollback_len() as i32
+}
+
+/// `sgr_mouse(handle, code, mods, release, x, y, out) -> n` — encode klik/wheel
+/// ke SGR escape untuk dikirim ke shell via `runner_input`. `n <= 0` kalau
+/// mode mouse belum aktif di TUI.
+fn sgr_mouse(handle: u64, code: i32, mods: i32, release: bool, x: i32, y: i32, out: &mut [u8]) -> i32 {
+    let Some(shared) = get(handle) else {
+        return -1;
+    };
+    let Ok(t) = shared.lock() else {
+        return -1;
+    };
+    let mut seq = Vec::with_capacity(16);
+    if !t.sgr_mouse_seq(
+        code.clamp(0, 255) as u8,
+        mods.clamp(0, 255) as u8,
+        release,
+        x.max(0) as usize,
+        y.max(0) as usize,
+        &mut seq,
+    ) {
+        return 0; // mode SGR belum aktif
+    }
+    if seq.len() > out.len() {
+        return -1;
+    }
+    out[..seq.len()].copy_from_slice(&seq);
+    seq.len() as i32
 }
 
 fn dirty(handle: u64) -> bool {
@@ -588,6 +637,72 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeRunnerInput(
     })
 }
 
+/// `nativeScrollOffset(handle, offset)` — set viewport scrollback (0 = bottom).
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeScrollOffset(
+    _env: JNIEnv,
+    _this: JObject,
+    handle: jlong,
+    offset: jint,
+) {
+    guard((), || set_scroll_offset(handle as u64, offset));
+}
+
+/// `nativeScrollMax(handle): Int` — jumlah baris scrollback yang bisa dilihat.
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeScrollMax(
+    _env: JNIEnv,
+    _this: JObject,
+    handle: jlong,
+) -> jint {
+    guard(0, || scroll_max(handle as u64))
+}
+
+/// `nativeSgrMouse(handle, code, mods, release, x, y, out): Int` — encode event
+/// mouse → byte SGR (untuk dikirim ke shell). 0 = mode mouse belum aktif.
+#[no_mangle]
+#[allow(non_snake_case)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeSgrMouse(
+    env: JNIEnv,
+    _this: JObject,
+    handle: jlong,
+    code: jint,
+    mods: jint,
+    release: jboolean,
+    x: jint,
+    y: jint,
+    out: jbyteArray,
+) -> jint {
+    guard(-1, || {
+        let out = unsafe { JByteArray::from_raw(out) };
+        let cap = match env.get_array_length(&out) {
+            Ok(n) => n.max(0) as usize,
+            Err(_) => return -1,
+        };
+        let mut raw = vec![0u8; cap];
+        let n = sgr_mouse(
+            handle as u64,
+            code,
+            mods,
+            release != 0,
+            x,
+            y,
+            &mut raw,
+        );
+        if n > 0 {
+            let bytes: Vec<i8> = raw[..n as usize].iter().map(|&b| b as i8).collect();
+            if env.set_byte_array_region(&out, 0, &bytes).is_err() {
+                return -1;
+            }
+        }
+        n
+    })
+}
+
 /// Konversi `Array<String>` Kotlin → `Vec<String>` (kembali None kalau batal).
 fn string_array(env: &mut JNIEnv, arr: &JObjectArray) -> Option<Vec<String>> {
     let n = env.get_array_length(arr).ok()?.max(0);
@@ -850,5 +965,60 @@ mod tests {
         assert!(spawn_session(h, "sh", vec!["-c".into(), "sleep 5; exit 0".into()], 40, 10));
         destroy(h); // harus join thread tanpa hang/panic
         assert_eq!(runner_exit(h), RUNNING, "slot runner ikut di-drop");
+    }
+
+    // ── Viewport scroll + mouse input ──
+
+    #[test]
+    fn scroll_offset_moves_cell_at_into_history() {
+        let h = init_term(10, 4);
+        // tulis 6 baris (CRLF) → ada scrollback
+        write(h, b"l1\r\nl2\r\nl3\r\nl4\r\nl5\r\nl6\r\n");
+        let max = scroll_max(h);
+        assert!(max >= 2, "ada scrollback, max={max}");
+
+        assert_eq!(cell_at(h, 0, 0).map(|c| c.2), Some('l' as u32), "bottom = l6? atau l5");
+        set_scroll_offset(h, max);
+        let first = cell_at(h, 0, 0).map(|c| c.2 as u8 as char);
+        assert_eq!(first, Some('l'), "scroll penuh → mulai dari sejarah");
+        let second = cell_at(h, 1, 0).map(|c| c.2 as u8 as char);
+        assert_eq!(second, Some('1'), "baris sejarah pertama = l1");
+
+        // offset berlebih di-clamp (tak boleh lebih dari scrollback)
+        set_scroll_offset(h, 99_999);
+        assert!(scroll_max(h) >= 0, "clamp aman");
+        destroy(h);
+    }
+
+    #[test]
+    fn scroll_max_grows_with_output() {
+        let h = init_term(8, 3);
+        write(h, b"a\r\nb\r\nc\r\n");
+        let m1 = scroll_max(h);
+        write(h, b"d\r\ne\r\nf\r\n");
+        let m2 = scroll_max(h);
+        assert!(m2 >= m1, "scrollback bertambah: {m1} → {m2}");
+        destroy(h);
+    }
+
+    #[test]
+    fn sgr_mouse_roundtrip_after_mode_enabled() {
+        let h = init_term(80, 24);
+        // mode mouse belum aktif → 0
+        let mut out = [0u8; 16];
+        assert_eq!(sgr_mouse(h, 1, 0, false, 3, 2, &mut out), 0, "belum aktif");
+
+        write(h, b"\x1b[?1000h\x1b[?1006h");
+        let n = sgr_mouse(h, 1, 0, false, 3, 2, &mut out);
+        assert!(n > 0, "encode SGR jalan: {n}");
+        let seq = String::from_utf8_lossy(&out[..n as usize]).into_owned();
+        assert!(seq.contains("1;3;2"), "koor 1-based (middle at 3,2): {seq}");
+        assert!(seq.ends_with('M'), "press = M: {seq}");
+
+        // release → suffix m, kode naik 3 (middle 1 → 4)
+        let n2 = sgr_mouse(h, 1, 0, true, 3, 2, &mut out);
+        let seq2 = String::from_utf8_lossy(&out[..n2.max(0) as usize]).into_owned();
+        assert!(seq2.ends_with('m'), "release = m: {seq2}");
+        destroy(h);
     }
 }

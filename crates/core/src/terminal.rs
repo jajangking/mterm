@@ -78,6 +78,8 @@ pub struct Terminal {
     pub alt_screen: Option<Grid>,
     pub events: VecDeque<TerminalEvent>,
     pub dirty_rect: Option<(usize, usize, usize, usize)>,
+    /// Scrollback offset viewport: 0 = ikut bottom; >0 = tampilkan scrollback.
+    scroll_offset: usize,
     pub current_hyperlink: Option<u32>,
     pub hyperlinks: HashMap<u32, String>,
     next_hyperlink: u32,
@@ -115,6 +117,7 @@ impl Terminal {
             alt_screen: None,
             events: VecDeque::new(),
             dirty_rect: None,
+            scroll_offset: 0,
             current_hyperlink: None,
             hyperlinks: HashMap::new(),
             next_hyperlink: 0,
@@ -132,6 +135,33 @@ impl Terminal {
     }
     pub fn rows(&self) -> usize {
         self.config.rows
+    }
+
+    // ── Viewport scrollback ──────────────────────────────────────────────
+
+    /// Jumlah baris yang bisa di-scroll (jumlah scrollback saat ini).
+    pub fn scrollback_len(&self) -> usize {
+        self.grid.scrollback_len()
+    }
+
+    pub fn scroll_offset(&self) -> usize {
+        self.scroll_offset
+    }
+
+    /// Set offset viewport (0 = ikut bottom); di-clamp ke scrollback.
+    /// Kalau berubah, tandai seluruh layar dirty supaya chrome repaint.
+    pub fn set_scroll_offset(&mut self, k: usize) {
+        let k = k.min(self.grid.scrollback_len());
+        if k != self.scroll_offset {
+            self.scroll_offset = k;
+            let (cols, rows) = (self.cols(), self.rows());
+            self.dirty_rect = Some((0, 0, cols, rows));
+        }
+    }
+
+    /// Baris display `y` dilihat lewat viewport (scrollback kalau offset > 0).
+    pub fn view_line(&self, y: usize) -> &crate::grid::Line {
+        self.grid.view_line(y, self.scroll_offset)
     }
 
     /// Encode event mouse ke SGR (mode 1006). Kosong kalau SGR belum aktif —
@@ -223,9 +253,11 @@ impl Terminal {
         self.grid.resize(cols, rows);
         self.cursor.x = self.cursor.x.min(cols.saturating_sub(1));
         self.cursor.y = self.cursor.y.min(rows.saturating_sub(1));
+        self.scroll_offset = self.scroll_offset.min(self.grid.scrollback_len());
     }
 
     fn enter_alt(&mut self, cols: usize, rows: usize) {
+        self.scroll_offset = 0; // alt screen tak punya scrollback
         self.alt_screen = Some(std::mem::replace(&mut self.grid, Grid::new(cols, rows, 0)));
     }
 
@@ -1321,5 +1353,88 @@ mod tests {
         t.feed_str("\x1b_Ga=zzz,o=1;QQ==\x1b\\");
         assert!(t.images.is_empty());
         assert!(!t.has_event());
+    }
+
+    // ── Viewport scrollback ──────────────────────────────────────────────
+
+    fn feed_lines(t: &mut Terminal, lines: &[&str]) {
+        for l in lines {
+            t.feed_str(l);
+            t.feed_str("\r\n");
+        }
+    }
+
+    #[test]
+    fn scroll_offset_reads_history_lines() {
+        let mut t = Terminal::new(TerminalConfig {
+            cols: 4,
+            rows: 2,
+            scrollback_cap: 100,
+        });
+        feed_lines(&mut t, &["l1", "l2", "l3", "l4", "l5"]);
+        // CRLF tiap baris → 4 baris masuk scrollback; layar = l5 + baris kosong.
+        assert_eq!(t.scrollback_len(), 4, "4 baris masuk scrollback");
+        assert_eq!(t.scroll_offset(), 0);
+
+        // offset 0 = ikut bottom (layar utama)
+        assert_eq!(row_text(&t, 0), "l5", "offset 0 = bottom (l5)");
+
+        // scroll penuh ke atas → tampilan mulai dari sejarah paling tua
+        t.set_scroll_offset(99);
+        assert_eq!(t.scroll_offset(), 4, "clamp ke max scroll");
+        assert_eq!(row_text(&t, 0), "l1", "teratas = l1");
+        assert_eq!(row_text(&t, 1), "l2", "baris kedua = l2");
+
+        // setengah scroll → jendela [l3,l4]
+        t.set_scroll_offset(2);
+        assert_eq!(row_text(&t, 0), "l3");
+        assert_eq!(row_text(&t, 1), "l4");
+    }
+
+    fn row_text(t: &Terminal, y: usize) -> String {
+        t.view_line(y).cells.iter().take(2).map(|c| c.ch).collect()
+    }
+
+    #[test]
+    fn scroll_offset_clamps_and_resets() {
+        let mut t = Terminal::new(TerminalConfig {
+            cols: 4,
+            rows: 2,
+            scrollback_cap: 2,
+        });
+        feed_lines(&mut t, &["a", "b", "c", "d"]);
+        // scrollback cap 2: hanya c,d ada di scrollback? a,b evicted
+        assert!(t.scrollback_len() <= 2);
+
+        t.set_scroll_offset(99);
+        assert_eq!(t.scroll_offset(), t.scrollback_len(), "clamp ke max scroll");
+
+        // resize lebih kecil → offset tetap terjaga (clamp)
+        t.set_scroll_offset(0);
+        feed_lines(&mut t, &["e"]);
+        t.resize(4, 3);
+        assert!(t.scroll_offset() <= t.scrollback_len());
+    }
+
+    #[test]
+    fn scroll_dirty_marks_full_repaint() {
+        let mut t = term_2x2();
+        feed_lines(&mut t, &["x", "y", "z"]);
+        t.set_scroll_offset(1);
+        assert_eq!(t.dirty_rect, Some((0, 0, 2, 2)), "scroll → seluruh layar dirty");
+        t.set_scroll_offset(1);
+        assert_eq!(t.dirty_rect, Some((0, 0, 2, 2)), "offset sama → dirty tetap");
+    }
+
+    #[test]
+    fn alt_screen_resets_scroll_offset() {
+        let mut t = term_2x2();
+        feed_lines(&mut t, &["p", "q", "r"]);
+        t.set_scroll_offset(1);
+        assert_eq!(t.scroll_offset(), 1);
+        t.feed_str("\x1b[?1049h");
+        assert_eq!(t.scroll_offset(), 0, "masuk alt screen → offset 0");
+        t.feed_str("\x1b[?1049l");
+        assert_eq!(t.scroll_offset(), 0, "keluar alt screen tetap 0");
     }
 }

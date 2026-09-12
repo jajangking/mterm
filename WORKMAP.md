@@ -81,6 +81,10 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
 - [ ] Sidebar drawer: git status, project files (read-only preview)
 - [ ] Keyboard handling: IME, Ctrl/Alt/Meta shortcuts, Escape passthrough
 - [ ] Scroll/selection: touch handling → mouse events ke Rust core
+  - [x] Rust side: viewport scrollback (`set_scroll_offset`/`scrollback_len`/
+        `view_line` di core + `nativeScrollOffset`/`nativeScrollMax`/JNI cell_at
+        hormati viewport) + mouse→SGR (`nativeSgrMouse`; 4 test core + 3 JNI)
+  - [ ] Chrome side: gesture → `scrollTo` + `sgrMouse` → `input` (butuh CI)
 - [ ] Settings page: font, theme, profile selection
 
 ## Fase 4 — Session Persistence + Process Management
