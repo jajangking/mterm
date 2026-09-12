@@ -502,15 +502,9 @@ mod tests {
     fn events_fifo_order() {
         let mut t = term_2x2();
         feed(&mut t, "\x1b]0;first\x07\x07\x1b]0;second\x07");
-        assert_eq!(
-            t.take_event(),
-            Some(TerminalEvent::Title("first".into()))
-        );
+        assert_eq!(t.take_event(), Some(TerminalEvent::Title("first".into())));
         assert_eq!(t.take_event(), Some(TerminalEvent::Bell));
-        assert_eq!(
-            t.take_event(),
-            Some(TerminalEvent::Title("second".into()))
-        );
+        assert_eq!(t.take_event(), Some(TerminalEvent::Title("second".into())));
         assert_eq!(t.take_event(), None);
     }
 

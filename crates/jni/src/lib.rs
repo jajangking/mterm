@@ -146,9 +146,7 @@ pub extern "C" fn nativeTakeEvent(handle: u64, out: *mut u8, cap: i32) -> i32 {
 
 fn color_u32(c: mterm_core::grid::Color) -> u32 {
     match c.to_rgb24() {
-        Some((r, g, b)) => {
-            0xFF00_0000 | ((r as u32) << 16) | ((g as u32) << 8) | b as u32
-        }
+        Some((r, g, b)) => 0xFF00_0000 | ((r as u32) << 16) | ((g as u32) << 8) | b as u32,
         None => 0, // tak ada warna → chrome pakai default
     }
 }

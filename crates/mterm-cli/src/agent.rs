@@ -69,7 +69,10 @@ fn save_session(path: &Path, s: &Session) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(path, serde_json::to_string_pretty(s).unwrap_or_else(|_| "{}".into()))
+    fs::write(
+        path,
+        serde_json::to_string_pretty(s).unwrap_or_else(|_| "{}".into()),
+    )
 }
 
 // ── Backend (abstraksi LLM) ──────────────────────────────────────────────
@@ -87,10 +90,7 @@ pub struct StubBackend;
 
 impl Backend for StubBackend {
     fn ask(&self, history: &[Msg], on_delta: &mut dyn FnMut(&str)) -> io::Result<String> {
-        let last = history
-            .last()
-            .map(|m| m.content.as_str())
-            .unwrap_or("");
+        let last = history.last().map(|m| m.content.as_str()).unwrap_or("");
         let reply = format!("[stub] kamu bilang: {last}");
         on_delta(&reply);
         Ok(reply)
@@ -105,7 +105,11 @@ fn send_json<W: Write>(w: &mut W, v: &Value) -> io::Result<()> {
 }
 
 /// Layani satu koneksi client: baca request → jawab (streaming).
-fn handle_conn(stream: UnixStream, session_path: &Path, backend: Arc<dyn Backend>) -> io::Result<()> {
+fn handle_conn(
+    stream: UnixStream,
+    session_path: &Path,
+    backend: Arc<dyn Backend>,
+) -> io::Result<()> {
     stream.set_read_timeout(Some(std::time::Duration::from_secs(600)))?;
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = stream;
@@ -118,7 +122,10 @@ fn handle_conn(stream: UnixStream, session_path: &Path, backend: Arc<dyn Backend
             break;
         }
         let Ok(req) = serde_json::from_str::<Value>(&line) else {
-            send_json(&mut writer, &json!({"type": "done", "error": "bad request"}))?;
+            send_json(
+                &mut writer,
+                &json!({"type": "done", "error": "bad request"}),
+            )?;
             break;
         };
         match req["cmd"].as_str() {
@@ -140,11 +147,14 @@ fn handle_conn(stream: UnixStream, session_path: &Path, backend: Arc<dyn Backend
                     role: "user".into(),
                     content: text.clone(),
                 });
-                send_json(&mut writer, &json!({
-                    "type": "meta",
-                    "workspace": sess.workspace,
-                    "history": sess.messages.len(),
-                }))?;
+                send_json(
+                    &mut writer,
+                    &json!({
+                        "type": "meta",
+                        "workspace": sess.workspace,
+                        "history": sess.messages.len(),
+                    }),
+                )?;
 
                 let backend = backend.clone();
                 let history = sess.messages.clone();
@@ -164,11 +174,17 @@ fn handle_conn(stream: UnixStream, session_path: &Path, backend: Arc<dyn Backend
                         // rollback user msg agar tidak menyisakan percakapan hang
                         sess.messages.pop();
                         let _ = save_session(session_path, &sess);
-                        send_json(&mut writer, &json!({"type": "done", "error": e.to_string()}))?;
+                        send_json(
+                            &mut writer,
+                            &json!({"type": "done", "error": e.to_string()}),
+                        )?;
                     }
                 }
             }
-            _ => send_json(&mut writer, &json!({"type": "done", "error": "unknown cmd"}))?,
+            _ => send_json(
+                &mut writer,
+                &json!({"type": "done", "error": "unknown cmd"}),
+            )?,
         }
     }
     let _ = writer.shutdown(Shutdown::Both);
@@ -176,7 +192,11 @@ fn handle_conn(stream: UnixStream, session_path: &Path, backend: Arc<dyn Backend
 }
 
 /// Accept loop tak terbatas (daemon).
-fn run_server(listener: UnixListener, session_path: PathBuf, backend: Arc<dyn Backend>) -> io::Result<()> {
+fn run_server(
+    listener: UnixListener,
+    session_path: PathBuf,
+    backend: Arc<dyn Backend>,
+) -> io::Result<()> {
     for conn in listener.incoming() {
         match conn {
             Ok(stream) => {
@@ -194,7 +214,11 @@ fn run_server(listener: UnixListener, session_path: PathBuf, backend: Arc<dyn Ba
 
 /// Layani SATU koneksi lalu keluar (dipakai test).
 #[cfg(test)]
-fn serve_once(listener: UnixListener, session_path: PathBuf, backend: Arc<dyn Backend>) -> io::Result<()> {
+fn serve_once(
+    listener: UnixListener,
+    session_path: PathBuf,
+    backend: Arc<dyn Backend>,
+) -> io::Result<()> {
     let (stream, _) = listener.accept()?;
     handle_conn(stream, &session_path, backend)
 }
@@ -415,8 +439,7 @@ mod tests {
         }
         assert_eq!(result, "halo dunia", "delta harus terkumpul jadi satu");
 
-        let s: Session =
-            serde_json::from_str(&fs::read_to_string(&sess_path).unwrap()).unwrap();
+        let s: Session = serde_json::from_str(&fs::read_to_string(&sess_path).unwrap()).unwrap();
         assert_eq!(s.messages.len(), 2, "user + assistant");
         assert_eq!(s.messages[0].role, "user");
         assert_eq!(s.messages[0].content, "tes dong");
