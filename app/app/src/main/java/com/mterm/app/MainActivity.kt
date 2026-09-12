@@ -82,9 +82,18 @@ fun TermView(session: TermSession) {
     var frame by remember { mutableStateOf(0) }
 
     DisposableEffect(session) {
-        // debug: dump isi grid ke logcat (hapus setelah verifikasi)
-        val dump = kotlin.concurrent.timer(period = 1500) {
-            android.util.Log.d("mterm", "grid=[" + session.gridText().replace("\n", "|") + "]")
+        // debug: dump isi grid + pixel + dirty/frame ke logcat (hapus setelah verifikasi)
+        val dump = kotlin.concurrent.timer(period = 2000) {
+            android.util.Log.i("mterm", "dump f=$frame dirty=${session.dirty()}")
+            val px = session.snapshot(80, 24)
+            android.util.Log.i(
+                "mterm",
+                "px0=" + (0 until 24).joinToString(" ") { String.format("%08x", px[it]) }
+            )
+            android.util.Log.i(
+                "mterm",
+                "grid=[" + session.gridText().replace("\n", "|") + "]"
+            )
         }
         onDispose { dump.cancel() }
     }
