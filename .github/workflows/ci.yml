@@ -36,9 +36,9 @@ jobs:
         id: cache-ndk
         with:
           path: ~/.cargo/bin/cargo-ndk
-          key: cargo-ndk-0.9
+          key: cargo-ndk-latest
       - if: steps.cache-ndk.outputs.cache-hit != 'true'
-        run: cargo install cargo-ndk --version "^0.9"
+        run: cargo install cargo-ndk
 
       # Rust → shared lib untuk arm64
       - run: cargo ndk -t arm64-v8a -o app/app/src/main/jniLibs build -p mterm-jni --release
@@ -65,8 +65,8 @@ jobs:
           git switch -c ci-logs 2>/dev/null || git switch ci-logs
           mkdir -p .ci-logs
           ts=$(date +%s)
-          cp build.log ".ci-logs/$ts.log"
-          git add ".ci-logs/$ts.log"
+          cp build.log ".ci-logs/$ts.log" 2>/dev/null || true
+          git add ".ci-logs/$ts.log" 2>/dev/null || true
           git commit -m "ci logs $ts" || true
           git push --force --set-upstream origin ci-logs || true
       - uses: actions/upload-artifact@v4
