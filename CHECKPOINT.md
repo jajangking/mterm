@@ -161,6 +161,16 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
 - **2026-09-12** CI rusak sesaat (3 run gagal) karena `cargo install
   cargo-ndk --version "^0.9"`; sudah diperbaiki di atas.
 
+- **2026-09-12** Fase 7: **Package manager ringan** (`mterm pkg`) — mandiri,
+  bukan wrapper apt. Ed25519 murni Rust (`ed25519-dalek` + `sha2`): `keygen`,
+  `repo-index`, `repo-sign`; `update` verifikasi `index.json.sig` (tolak index
+  tampered). Repo standalone: `pkgs/*.tar.zst` + `parts/<sha256>` (1 MiB
+  content-addressed) + `index.json` — support `file://` & `https://`, mirror
+  config `pkg mirrors add/list/remove`. Delta rsync-style: hanya part baru
+  diunduh (lama di-cache dipakai ulang), teruji e2e dengan `prng filler` > 1 MiB.
+  Full flow: `keygen → make-repo → update → install → verify → remove` semuanya
+  jalan; 112 test total, 0 clippy; sedang dipush.
+
 > **Belum dicek**: hasil run terakhir (`4b5681d`) — tunggu job android
 > (`assembleDebug`) selesai + status lewat public API sebelum lanjut fitur.
 

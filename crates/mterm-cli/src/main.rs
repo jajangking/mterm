@@ -2,6 +2,7 @@
 
 mod agent;
 mod doctor;
+mod pkg;
 mod profile;
 mod render;
 mod run;
@@ -19,6 +20,7 @@ fn main() {
         "doctor" => doctor::doctor(),
         "profile" => profile::main(&args[2..]),
         "tool" => tool::main(&args[2..]),
+        "pkg" => pkg::main(&args[2..]),
         "agent" => agent::main(&args[2..]),
         "help" | "--help" | "-h" => {
             print_usage();
@@ -47,6 +49,7 @@ usage:
   mterm doctor               cek ketersediaan tool (git, node, dll)
   mterm profile list|use|show|verify
   mterm tool status|install <name> [--version vX]   node android-arm64 + cache
+  mterm pkg  keygen|make-repo|mirrors|update|list|search|info|install|remove|verify
   mterm agent start|stop|restart|list|status|ask|reset|history|stderr [clear]
 ",
         env!("CARGO_PKG_VERSION")

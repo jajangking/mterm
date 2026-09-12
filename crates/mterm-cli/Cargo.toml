@@ -17,3 +17,5 @@ libc.workspace = true
 crossterm.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+ed25519-dalek.workspace = true
+sha2.workspace = true

@@ -141,11 +141,22 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
 ## Fase 7 — Package Manager (Ringan)
 **Tujuan**: Ganti apt/dpkg dengan yang lebih cepat dan kecil.
 
-- [ ] Minimal pkg manager: tar.zst + metadata JSON
-- [ ] Repository mirrors (standalone, bukan Debian)
-- [ ] `pkg install <name>`, `pkg update`, `pkg remove`, `pkg list`
-- [ ] Delta updates (rsync-style)
-- [ ] Signing: GPG atau signature file
+- [x] Minimal pkg manager: tar.zst + metadata JSON
+      (`mterm pkg make-repo <dir>`: index.json untuk *.tar.zst di <dir>/pkgs/;
+      install ekstrak via zstd+tar ke `~/.mterm/pkg/prefix/` app-private)
+- [x] Repository mirrors (standalone, bukan Debian)
+      (url `https://…` atau `file://…`; `pkg mirrors add|list|remove`;
+      index.json+parts di root repo; indepes dari struktur Debian)
+- [x] `pkg install <name>`, `pkg update`, `pkg remove`, `pkg list`
+      (+ `search`, `info`, `verify`, `install <nama>@<versi>`, tarball lokal)
+- [x] Delta updates (rsync-style)
+      (arsip dipecah jadi part 1 MiB content-addressed `parts/<sha256>`;
+      install hanya mengunduh part yang belum ada di cache — versi baru dengan
+      konten sebagian sama → sebagian besar dipakai ulang; teruji e2e)
+- [x] Signing: GPG atau signature file
+      (tanda tangan Ed25519 murni Rust `index.json.sig` via `pkg keygen` +
+      `repo-sign`; `pkg update` menolak index yang tidak cocok tanda tangan
+      saat kunci publik tersedia)
 
 ## Fase 8 — Polish + Release
 - [ ] APK signing + Play Store / F-Droid metadata
