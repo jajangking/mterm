@@ -125,14 +125,45 @@ impl Terminal {
             self.maybe_scroll();
             return;
         }
+        if (ch as u32) < 0x100 {
+            self.put_ascii(ch as u8);
+            return;
+        }
+        self.put_glyph_wide(ch);
+    }
+
+    /// Tulis 1 char printable ASCII (0x20..=0x7e) + wrap; hot path feed.
+    #[inline]
+    fn put_ascii(&mut self, b: u8) {
+        if b < 0x20 {
+            return;
+        }
         if self.cursor.x >= self.cols() {
-            // wrap SEBELUM menulis (kursor di kolom terakhir)
             if self.mode == Mode::Wrap {
                 self.cursor.y += 1;
                 self.maybe_scroll();
                 self.cursor.x = 0;
             } else {
-                self.cursor.x = self.cols() - 1;
+                self.cursor.x = self.cols().saturating_sub(1);
+            }
+        }
+        let mut attrs = self.cursor.attrs;
+        attrs.hyperlink = self.current_hyperlink;
+        self.cursor.x += self
+            .grid
+            .set(self.cursor.x, self.cursor.y, Cell::new(b as char, attrs));
+    }
+
+    /// Char non-ASCII (>= 100 hex) via vte — beat sudah di `boundary`; di sini
+    /// tulis sebagai lebar 1 (normalisasi CJK belum didukung).
+    fn put_glyph_wide(&mut self, ch: char) {
+        if self.cursor.x >= self.cols() {
+            if self.mode == Mode::Wrap {
+                self.cursor.y += 1;
+                self.maybe_scroll();
+                self.cursor.x = 0;
+            } else {
+                self.cursor.x = self.cols().saturating_sub(1);
             }
         }
         let mut attrs = self.cursor.attrs;
@@ -165,10 +196,42 @@ impl Terminal {
         self.events.push_back(TerminalEvent::Title(title));
     }
 
+    #[inline]
+    fn fast_byte(b: u8) -> bool {
+        (0x20..=0x7e).contains(&b) || b == b'\r' || b == b'\n'
+    }
+
     /// Feed byte mentah (output PTY/socket) → parser + engine.
-    pub fn feed_bytes(&mut self, bytes: &[u8]) {
-        let mut parser = vte::Parser::new();
-        parser.advance(self, bytes);
+    /// Fast path: run ASCII printable/CR/LF ditulis langsung tanpa vte;
+    /// byte lain (ESC, control, utf8) → vte untuk sisa chunk.
+    pub fn feed_bytes(&mut self, mut bytes: &[u8]) {
+        while !bytes.is_empty() {
+            if Self::fast_byte(bytes[0]) {
+                let mut n = 1;
+                while n < bytes.len() && Self::fast_byte(bytes[n]) {
+                    n += 1;
+                }
+                self.put_fast(&bytes[..n]);
+                bytes = &bytes[n..];
+            } else {
+                let mut parser = vte::Parser::new();
+                parser.advance(self, bytes);
+                return;
+            }
+        }
+    }
+
+    fn put_fast(&mut self, run: &[u8]) {
+        for &b in run {
+            match b {
+                b'\r' => self.cursor.x = 0,
+                b'\n' => {
+                    self.cursor.y = (self.cursor.y + 1).min(self.rows());
+                    self.maybe_scroll();
+                }
+                _ => self.put_ascii(b),
+            }
+        }
     }
 
     /// Feed string/lossy utf8.
@@ -689,5 +752,28 @@ mod tests {
         assert_eq!(indexed_to_rgb(255), (238, 238, 238));
         assert_eq!(Color::Indexed(196).to_rgb24(), Some((255, 0, 0)));
         assert_eq!(Color::Default.to_rgb24(), None);
+    }
+
+    /// Benchmark manual: feed 10k baris `seq 1 10000`-style dan ukur waktu.
+    /// Jalankan: `cargo test -p mterm-core seq_10k -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn seq_10k_benchmark() {
+        let cfg = TerminalConfig {
+            cols: 80,
+            rows: 24,
+            ..Default::default()
+        };
+        let mut t = Terminal::new(cfg);
+        let line = format!("line {}\r\n", "x".repeat(70));
+        let mut buf = Vec::with_capacity(line.len() * 10_000);
+        for _ in 0..10_000 {
+            buf.extend_from_slice(line.as_bytes());
+        }
+        let start = std::time::Instant::now();
+        t.feed_bytes(&buf);
+        let elapsed = start.elapsed();
+        let per_line = elapsed.as_secs_f64() / 10_000.0 * 1e6;
+        println!("10k lines: {:?} ({:.0} us/baris)", elapsed, per_line);
     }
 }
