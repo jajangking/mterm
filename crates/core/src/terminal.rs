@@ -60,6 +60,7 @@ pub struct Terminal {
     pub hyperlinks: HashMap<u32, String>,
     next_hyperlink: u32,
     pub mouse_tracking: bool,
+    pub sgr_mouse: bool,
 }
 
 impl Terminal {
@@ -85,6 +86,7 @@ impl Terminal {
             hyperlinks: HashMap::new(),
             next_hyperlink: 0,
             mouse_tracking: false,
+            sgr_mouse: false,
         }
     }
 
@@ -93,6 +95,24 @@ impl Terminal {
     }
     pub fn rows(&self) -> usize {
         self.config.rows
+    }
+
+    /// Encode event mouse ke SGR (mode 1006). Kosong kalau SGR belum aktif —
+    /// chrome boleh mengirim tanpa cek mode dulu.
+    pub fn sgr_mouse_seq(
+        &self,
+        code: u8,
+        mods: u8,
+        release: bool,
+        x: usize,
+        y: usize,
+        out: &mut Vec<u8>,
+    ) -> bool {
+        if !self.sgr_mouse {
+            return false;
+        }
+        crate::mouse::encode(code, mods, release, x, y, out);
+        true
     }
 
     fn put_char(&mut self, ch: char) {
@@ -272,6 +292,9 @@ impl Perform for Terminal {
                             self.mouse_tracking = true;
                             self.events.push_back(TerminalEvent::Mouse(true));
                         }
+                        1006 if private => {
+                            self.sgr_mouse = true;
+                        }
                         _ => {}
                     }
                 }
@@ -289,6 +312,8 @@ impl Perform for Terminal {
                 {
                     self.mouse_tracking = false;
                     self.events.push_back(TerminalEvent::Mouse(false));
+                } else if private && list.first().copied() == Some(1006) {
+                    self.sgr_mouse = false;
                 }
             }
             _ => {}
@@ -630,6 +655,29 @@ mod tests {
         // mode 1002/1003 juga menyalakan
         feed(&mut t, "\x1b[?1003h");
         assert!(t.mouse_tracking);
+    }
+
+    #[test]
+    fn sgr_1006_toggles_and_gates_encode() {
+        let mut t = term_2x2();
+
+        // tak aktif → encode kosong
+        let mut out = Vec::new();
+        assert!(!t.sgr_mouse_seq(crate::mouse::BTN_LEFT, 0, false, 1, 1, &mut out));
+        assert!(out.is_empty());
+
+        feed(&mut t, "\x1b[?1006h");
+        assert!(t.sgr_mouse, "?1006h menyalakan SGR");
+        assert!(t.sgr_mouse_seq(crate::mouse::BTN_LEFT, 0, false, 3, 2, &mut out));
+        assert_eq!(out, b"\x1b[<0;3;2M");
+
+        feed(&mut t, "\x1b[?1006l");
+        assert!(!t.sgr_mouse, "?1006l mematikan SGR");
+
+        // 1006 off tak menyala karena 1000h saja
+        let mut t2 = term_2x2();
+        feed(&mut t2, "\x1b[?1000h");
+        assert!(!t2.sgr_mouse, "1000h tanpa 1006 → SGR tetap off");
     }
 
     #[test]
