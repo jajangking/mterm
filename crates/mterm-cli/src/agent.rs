@@ -980,7 +980,8 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
             let (mut sock, _) = listener.accept().unwrap();
-            use std::io::Write as _;
+            use std::io::{Read as _, Write as _};
+            use std::net::Shutdown;
             let body = concat!(
                 "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\r\n\r\n",
                 "data: {\"choices\":[{\"delta\":{\"content\":\"lo teman\"}}]}\r\n\r\n",
@@ -992,6 +993,16 @@ mod tests {
                     .as_bytes(),
             );
             let _ = sock.flush();
+            // Half-close dulu (kirim FIN, bukan RST) biar curl dapat EOF bersih;
+            // lalu tunggu client tutup (dengan timeout, jangan hang).
+            let _ = sock.shutdown(Shutdown::Write);
+            let _ = sock.set_read_timeout(Some(std::time::Duration::from_millis(1000)));
+            let mut buf = [0u8; 1024];
+            while let Ok(n) = sock.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+            }
         });
 
         let url = format!("http://{addr}/v1/chat/completions");
