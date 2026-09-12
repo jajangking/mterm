@@ -163,8 +163,15 @@ class TermSession(private val handle: Long) {
             ((b[off + 3].toInt() and 0xFF) shl 24)
     }
 
+    /**
+     * Warna default (`0` dari JNI — tak ada warna) → polyfill: bg gelap,
+     * fg terang. Sampai font atlas masuk (Fase 8), setiap karakter dirender
+     * blok solid warna fg; spasi = bg.
+     */
     private fun paint(fg: Int, bg: Int, ch: Char): Int {
-        return if (ch == ' ') bg else bg or 0x00 or fg // stub: polyfill warna nanti via atlas font
+        val b = if ((bg ushr 24) == 0) 0xFF1B1B1F else bg
+        val f = if ((fg ushr 24) == 0) 0xFFE0E0E0 else fg
+        return if (ch == ' ') b else f
     }
 }
 

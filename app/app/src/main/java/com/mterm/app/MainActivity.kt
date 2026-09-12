@@ -15,6 +15,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -32,7 +33,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,7 +46,7 @@ class MainActivity : ComponentActivity() {
             val session = rememberTermSession(cols, rows)
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    Box {
+                    Box(Modifier.fillMaxSize().navigationBarsPadding()) {
                         TermView(session)
                         TermKeyboard(session)
                     }
@@ -91,7 +94,11 @@ fun TermView(session: TermSession) {
             }
         }
         Canvas(Modifier.fillMaxSize()) {
-            drawImage(bmp.asImageBitmap())
+            // bitmap asli 80x24 px → di-stretch penuh layar
+            drawImage(
+                bmp.asImageBitmap(),
+                dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
+            )
         }
         Text(
             "ketuk layar untuk keyboard",
