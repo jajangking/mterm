@@ -221,6 +221,100 @@ fn llm_key() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+// ── Slash command + context collector ─────────────────────────────────────
+
+const MAX_CONTEXT_CHARS: usize = 12_000;
+
+/// Pisah `/cmd arg` → Some((cmd, arg)). Bukan slash → None.
+fn slash_parse(raw: &str) -> Option<(&str, &str)> {
+    let t = raw.trim();
+    if !t.starts_with('/') {
+        return None;
+    }
+    match t.split_once(char::is_whitespace) {
+        Some((c, r)) => Some((c, r.trim())),
+        None => Some((t, "")),
+    }
+}
+
+fn cap_chars(s: String, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s;
+    }
+    let mut out: String = s.chars().take(max).collect();
+    out.push_str("\n…(terpotong)");
+    out
+}
+
+/// Baca file (relatif workspace), potong kalau terlalu besar.
+fn read_file_ctx(ws: &Path, rel: &str) -> io::Result<(String, String)> {
+    let p = ws.join(rel);
+    let content = fs::read_to_string(&p).map_err(|e| {
+        io::Error::new(e.kind(), format!("tidak bisa baca {}: {e}", p.display()))
+    })?;
+    Ok((p.display().to_string(), cap_chars(content, MAX_CONTEXT_CHARS)))
+}
+
+fn git_captured(ws: &Path, args: &[&str]) -> String {
+    std::process::Command::new("git")
+        .args(args)
+        .current_dir(ws)
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default()
+}
+
+/// Konteks repo: status singkat + stat diff (untuk `/commit`).
+fn git_diff_context(ws: &Path) -> String {
+    let status = git_captured(ws, &["status", "--short"]);
+    let stat = git_captured(ws, &["diff", "--stat"]);
+    let mut s = format!(
+        "cwd: {}\n\ngit status:\n{}\n\ngit diff --stat:\n{}",
+        ws.display(),
+        status,
+        stat
+    );
+    if status.is_empty() && stat.is_empty() {
+        s.push_str("\n(bukan repo git — hanya cwd)");
+    }
+    cap_chars(s, MAX_CONTEXT_CHARS)
+}
+
+/// Terapkan slash command → (teks user final, sys_note context untuk LLM).
+fn slash_apply(raw: &str, workspace: &str) -> io::Result<(String, String)> {
+    let Some((cmd, arg)) = slash_parse(raw) else {
+        return Ok((raw.to_string(), String::new()));
+    };
+    let ws = PathBuf::from(workspace);
+    match cmd {
+        "/ask" => {
+            if arg.is_empty() {
+                Err(io::Error::new(io::ErrorKind::InvalidInput, "usage: /ask <pertanyaan>"))
+            } else {
+                Ok((arg.to_string(), String::new()))
+            }
+        }
+        "/explain" | "/fix" => {
+            if arg.is_empty() {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("usage: {cmd} <file>")));
+            }
+            let (path, content) = read_file_ctx(&ws, arg)?;
+            let verb = if cmd == "/fix" { "Perbaiki" } else { "Jelaskan" };
+            let note = format!("{verb} kode berikut.\nFile: {path}\n\n```\n{content}\n```");
+            Ok((format!("{verb} kode di {path}"), note))
+        }
+        "/commit" => Ok((
+            "Buat pesan commit konvensional pendek (<=72 karakter, bahasa Indonesia) dari diff berikut."
+                .to_string(),
+            git_diff_context(&ws),
+        )),
+        other => Err(io::Error::other(format!(
+            "perintah tak dikenal: {other} (tersedia: /ask, /explain, /fix, /commit)"
+        ))),
+    }
+}
+
 // ── Server (daemon) ──────────────────────────────────────────────────────
 
 fn send_json<W: Write>(w: &mut W, v: &Value) -> io::Result<()> {
@@ -261,12 +355,23 @@ fn handle_conn(
                 send_json(&mut writer, &json!({"type": "done", "reset": true}))?;
             }
             Some("ask") => {
-                let text = req["text"].as_str().unwrap_or("").trim().to_string();
-                if text.is_empty() {
+                let raw = req["text"].as_str().unwrap_or("").trim().to_string();
+                if raw.is_empty() {
                     send_json(&mut writer, &json!({"type": "done", "error": "empty"}))?;
                     continue;
                 }
                 let mut sess = load_session(session_path);
+                let (text, sys_note) = match slash_apply(&raw, &sess.workspace) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        send_json(&mut writer, &json!({"type": "done", "error": e.to_string()}))?;
+                        continue;
+                    }
+                };
+                if text.is_empty() {
+                    send_json(&mut writer, &json!({"type": "done", "error": "empty"}))?;
+                    continue;
+                }
                 sess.messages.push(Msg {
                     role: "user".into(),
                     content: text.clone(),
@@ -281,7 +386,16 @@ fn handle_conn(
                 )?;
 
                 let backend = backend.clone();
-                let history = sess.messages.clone();
+                let mut history = sess.messages.clone();
+                if !sys_note.is_empty() {
+                    history.insert(
+                        0,
+                        Msg {
+                            role: "system".into(),
+                            content: sys_note,
+                        },
+                    );
+                }
                 let result = backend.ask(&history, &mut |piece| {
                     let _ = send_json(&mut writer, &json!({"type": "delta", "text": piece}));
                 });
@@ -653,5 +767,60 @@ mod tests {
         std::env::set_var("GROQ_API_KEY", "env-key");
         assert_eq!(llm_key().as_deref(), Some("env-key"));
         std::env::remove_var("GROQ_API_KEY");
+    }
+
+    #[test]
+    fn slash_parse_recognizes_commands() {
+        assert_eq!(slash_parse("/ask halo dunia"), Some(("/ask", "halo dunia")));
+        assert_eq!(slash_parse("/explain src/a.rs"), Some(("/explain", "src/a.rs")));
+        assert_eq!(slash_parse("/commit"), Some(("/commit", "")));
+        assert_eq!(slash_parse("halo biasa"), None);
+        assert_eq!(slash_parse(""), None);
+    }
+
+    #[test]
+    fn slash_apply_explain_reads_file_into_sys_note() {
+        let dir = std::env::temp_dir().join(format!("mterm-slash-{}", std::process::id()));
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(dir.join("src/a.rs"), "fn halo() -> u32 { 1 }").unwrap();
+
+        let (final_text, sys) = slash_apply("/explain src/a.rs", dir.to_str().unwrap()).unwrap();
+        assert!(final_text.contains("Jelaskan kode di"));
+        assert!(sys.contains("fn halo() -> u32 { 1 }"), "isi file masuk sys_note");
+        assert!(sys.contains("src/a.rs"));
+
+        let (t, _) = slash_apply("/ask 1+1?", dir.to_str().unwrap()).unwrap();
+        assert_eq!(t, "1+1?", "/ask dipotong preﬁksnya");
+
+        let err = slash_apply("/nope x", dir.to_str().unwrap()).unwrap_err();
+        assert!(err.to_string().contains("perintah tak dikenal"), "{err}");
+
+        let err = slash_apply("/explain file-tak-ada.rs", dir.to_str().unwrap()).unwrap_err();
+        assert!(err.to_string().contains("tidak bisa baca"), "{err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn slash_apply_commit_uses_git_diff() {
+        // skip halus kalau git tidak tersedia
+        let dir = std::env::temp_dir().join(format!("mterm-cmt-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let ok = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok {
+            eprintln!("skip: git tidak ada");
+            return;
+        }
+        fs::write(dir.join("f.txt"), "a\n").unwrap();
+        let (_t, sys) = slash_apply("/commit", dir.to_str().unwrap()).unwrap();
+        assert!(
+            sys.contains("git status") || sys.contains("cwd"),
+            "context berisi git: {sys}"
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 }

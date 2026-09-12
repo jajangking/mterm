@@ -93,10 +93,11 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
 - [x] Backend LLM beneran: `RestBackend` (curl streaming SSE, OpenAI-compatible:
       Groq/OpenAI/openrouter/ollama) — default model `openai/gpt-oss-120b` via
       env `MTERM_MODEL`; key dari `GROQ_API_KEY`/`~/.groq_key`; fallback `StubBackend`
-- [ ] Slash command: `/ask`, `/explain`, `/fix`, `/commit`
+- [x] Slash command: `/ask`, `/explain`, `/fix`, `/commit` + context collector
+      (file read cap 12k char; `git status`+`git diff --stat` untuk `/commit`)
 - [ ] Agent output renderer: markdown → terminal (table, code, link)
 - [ ] Workspace-scoped agent lifecycle (start/stop/restart per-project)
-- [ ] Stderr + context collector → bundle ke agent
+- [ ] Stderr + context collector → bundle ke agent (file+git sudah; stderr kolektor belum)
 
 ## Fase 7 — Package Manager (Ringan)
 **Tujuan**: Ganti apt/dpkg dengan yang lebih cepat dan kecil.
