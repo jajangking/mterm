@@ -86,7 +86,7 @@ fun TermView(session: TermSession) {
     LaunchedEffect(session) {
         session.startSession(
             "/system/bin/sh",
-            emptyArray(),
+            arrayOf("-c", "echo BANNER-MTERM; exec /system/bin/sh"),
             ctx.filesDir.path,
             cols,
             rows,
