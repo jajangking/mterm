@@ -113,6 +113,11 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
 - **2026-09-12** CI dipercepat: `workflow_dispatch` (rebuild tanpa push), job
   android paralel (tanpa `needs: rust`), `Swatinem/rust-cache` + cache biner
   `cargo-ndk`. Target waktu ~1-2 mnt.
+- **2026-09-12** Core: **SGR mouse 1006** — `crates/core/src/mouse.rs`
+  (`sgr_mouse_seq`/`encode`: bit modif xterm Shift=4/Alt=8/Ctrl=16/Motion=32,
+  release `m` vs press `M`, roda 64/65, koordinat 1-based clamp) + parsing
+  `CSI ?1006h/l` jadi `sgr_mouse` flag di `Terminal`. 9 test baru → core 27/27,
+  workspace green, 0 clippy. Commit `d9b4ddb`.
 
 > **Belum dicek**: hasil run terakhir (`4b5681d`) — tunggu job android
 > (`assembleDebug`) selesai + status lewat public API sebelum lanjut fitur.
