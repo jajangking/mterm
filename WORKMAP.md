@@ -105,8 +105,16 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
 
 - [x] `mterm profile list/use/show/add` — manifest `~/.mterm/profiles.json` + marker `.mterm.profile` per-workspace
 - [x] Profiles default: `dev` (git+node+ripgrep), `web` (node+npm) — extendible via `mterm profile add`
-- [ ] Profiles lengkap: `full` (python+go), rilis terverifikasi
-- [ ] Binary download + cache di app-private dir (pakai node android-arm64 resmi dulu)
+- [x] Profiles lengkap: `full` (python+go), rilis terverifikasi
+      (`mterm profile verify <name>` cek tiap runtime via `command -v`+`--version`;
+       `full` ditambahkan default + migrasi ke manifest lama)
+- [x] Binary download + cache di app-private dir (`~/.mterm/cache`): `mterm tool
+      install node` — .deb aarch64 dari repo Termux resmi (nodejs.org tidak
+      menyediakan android-arm64 lagi sejak v18+), SHA256 diverifikasi vs
+      `Packages.gz`, ekstrak `data.tar.xz` (strip-components), symlink ke
+      `cache/bin/`; `tool status` lihat instalasi; pin versi via `--version` /
+      `MTERM_NODE_VERSION`; 6 test unit (parser index, filter, deb URL,
+      marker)
 - [x] `mterm doctor` — cek runtime ready (git/node/rg present, bun/fzf optional)
 
 ## Fase 6 — Agent IPC + Command Palette

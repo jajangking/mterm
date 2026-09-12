@@ -33,7 +33,7 @@ fn manifest_path() -> PathBuf {
 
 fn load() -> Profiles {
     let p = manifest_path();
-    match fs::read_to_string(&p) {
+    let mut profiles = match fs::read_to_string(&p) {
         Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
         Err(_) => {
             let mut def = Profiles::default();
@@ -51,9 +51,28 @@ fn load() -> Profiles {
                     theme: Some("dark".into()),
                 },
             );
+            def.available.insert(
+                "full".into(),
+                Profile {
+                    runtimes: vec!["python".into(), "go".into(), "git".into(), "node".into()],
+                    theme: Some("dark".into()),
+                },
+            );
             def
         }
+    };
+    // Migrasi: manifest lama (sebelum `full` ada) — tambahkan kalau belum ada.
+    if !profiles.available.contains_key("full") {
+        profiles.available.insert(
+            "full".into(),
+            Profile {
+                runtimes: vec!["python".into(), "go".into(), "git".into(), "node".into()],
+                theme: Some("dark".into()),
+            },
+        );
+        let _ = save(&profiles);
     }
+    profiles
 }
 
 fn save(p: &Profiles) -> io::Result<()> {
@@ -100,6 +119,40 @@ pub fn main(args: &[String]) -> io::Result<()> {
             match fs::read_to_string(&marker) {
                 Ok(s) => println!("workspace profile: {}", s.trim()),
                 Err(_) => println!("tidak ada .mterm.profile di workspace ini"),
+            }
+        }
+        "verify" => {
+            let name = args.get(1).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "usage: mterm profile verify <name>")
+            })?;
+            let p = profiles.available.get(name).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, format!("profile {name} tidak ada"))
+            })?;
+            println!("profile {name}: {} (rilis diverifikasi)", p.runtimes.join(", "));
+            let mut ok = 0;
+            let mut missing = 0;
+            for rt in &p.runtimes {
+                match crate::runtime::runtime_for(rt) {
+                    Some(r) => match crate::runtime::version_of(r.bins, r.version_flag) {
+                        Some((_, v)) => {
+                            println!("  ✓ {rt} {v}");
+                            ok += 1;
+                        }
+                        None => {
+                            println!("  ✗ {rt} tidak ditemukan di PATH");
+                            missing += 1;
+                        }
+                    },
+                    None => {
+                        println!("  ? {rt} (cek versi tidak dikenal)");
+                        missing += 1;
+                    }
+                }
+            }
+            if missing == 0 {
+                println!("semua runtime profile {name} terverifikasi.");
+            } else {
+                println!("{ok} ok, {missing} kurang");
             }
         }
         "add" => {

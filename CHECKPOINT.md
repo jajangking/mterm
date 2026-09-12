@@ -18,6 +18,8 @@
 | **EmuRunner→JNI** (`crates/jni`) | ✅ `nativeSessionStart`/`nativeRunnerStop`/`nativeRunnerExit`/`nativeRunnerInput`/`nativeRunnerResize` + `TermSession` Kt; 6 test PTY asli di host (respawn, stop, destroy join) — kotlin belum di-compile (butuh CI) |
 | **Viewport scroll + mouse** (Fase 3 Rust-side) | ✅ `Terminal::set_scroll_offset`/`view_line` (#44 core) + JNI `nativeScrollOffset`/`nativeScrollMax`/`nativeSgrMouse` (20 jni); `cell_at` hormati scrollback; chrome gesture tinggal panggil |
 | **Session persistence** (Fase 4) | ✅ `Terminal::to_json`/`from_json` (serde, transient di-skip) + JNI `nativeSaveState`/`nativeLoadState` + e2e PTY save→restore→continue (#48 core, 20 jni, 1 cli) |
+| **Profile full + rilises terverifikasi** (Fase 5) | ✅ profile `full` (python+go+git+node) + `mterm profile verify <name>` (command -v + versi nyata) |
+| **Tool download + cache** (Fase 5) | ✅ `mterm tool install node`: .deb aarch64 repo Termux resmi → SHA256 vs `Packages.gz` → ekstrak `data.tar.xz` → `~/.mterm/cache/bin`; `tool status`; pin `--version`/`MTERM_NODE_VERSION` (mterm-cli bin 20 test; total 98) |
 | `Session` exit semantics | ✅ `exited()` sekarang cache kode (dulu setelah reap selalu kasih `Some(0)`); drop reap anti-zombie tetap |
 | End-to-end engine↔PTY di Termux | ✅ diverifikasi (echo, seq 500, SGR) |
 

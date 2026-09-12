@@ -5,6 +5,8 @@ mod doctor;
 mod profile;
 mod render;
 mod run;
+mod runtime;
+mod tool;
 
 use std::io;
 
@@ -16,6 +18,7 @@ fn main() {
         "run" => run::run(&args[2..]),
         "doctor" => doctor::doctor(),
         "profile" => profile::main(&args[2..]),
+        "tool" => tool::main(&args[2..]),
         "agent" => agent::main(&args[2..]),
         "help" | "--help" | "-h" => {
             print_usage();
@@ -42,7 +45,8 @@ fn print_usage() {
 usage:
   mterm run [args...]        jalankan command di PTY + engine
   mterm doctor               cek ketersediaan tool (git, node, dll)
-  mterm profile list|use|show
+  mterm profile list|use|show|verify
+  mterm tool status|install <name> [--version vX]   node android-arm64 + cache
   mterm agent start|ask|stop
 ",
         env!("CARGO_PKG_VERSION")
