@@ -164,9 +164,5 @@ fn wait_read(fd: i32, timeout_ms: i32) -> bool {
 }
 
 fn map_color(c: Color) -> (u8, u8, u8) {
-    match c {
-        Color::Default => (220, 220, 220),
-        Color::Indexed(i) => (16 + (i * 3) % 230, 16 + (i * 3) % 230, 16 + (i * 3) % 230),
-        Color::Rgb(r, g, b) => (r, g, b),
-    }
+    c.to_rgb24().unwrap_or((220, 220, 220))
 }

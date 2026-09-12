@@ -10,6 +10,8 @@ pub struct CellAttrs {
     pub inverse: bool,
     pub fg: Color,
     pub bg: Color,
+    /// ID hyperlink OSC 8 di registry terminal; `None` = bukan link.
+    pub hyperlink: Option<u32>,
 }
 
 impl CellAttrs {
@@ -24,6 +26,54 @@ pub enum Color {
     Default,
     Indexed(u8),
     Rgb(u8, u8, u8),
+}
+
+impl Color {
+    /// Resolve ke RGB 24-bit. `Default` → None (biarkan host pakai warna default).
+    pub fn to_rgb24(self) -> Option<(u8, u8, u8)> {
+        match self {
+            Color::Default => None,
+            Color::Rgb(r, g, b) => Some((r, g, b)),
+            Color::Indexed(i) => Some(indexed_to_rgb(i)),
+        }
+    }
+}
+
+/// Peta 256-color xterm: 0-15 sistem, 16-231 cube 6x6x6, 232-255 grayscale.
+pub fn indexed_to_rgb(i: u8) -> (u8, u8, u8) {
+    const SYSTEM: [(u8, u8, u8); 16] = [
+        (0, 0, 0),
+        (205, 0, 0),
+        (0, 205, 0),
+        (205, 205, 0),
+        (0, 0, 238),
+        (205, 0, 205),
+        (0, 205, 205),
+        (229, 229, 229),
+        (127, 127, 127),
+        (255, 0, 0),
+        (0, 255, 0),
+        (255, 255, 0),
+        (92, 92, 255),
+        (255, 0, 255),
+        (0, 255, 255),
+        (255, 255, 255),
+    ];
+    match i {
+        0..=15 => SYSTEM[i as usize],
+        16..=231 => {
+            let n = i - 16;
+            const CUBE: [u8; 6] = [0, 95, 135, 175, 215, 255];
+            let r = CUBE[(n / 36) as usize];
+            let g = CUBE[(n / 6 % 6) as usize];
+            let b = CUBE[(n % 6) as usize];
+            (r, g, b)
+        }
+        _ => {
+            let v = 8 + 10 * (i - 232);
+            (v, v, v)
+        }
+    }
 }
 
 /// Satu sel terminal. `width` untuk karakter wide (CJK/emoji).

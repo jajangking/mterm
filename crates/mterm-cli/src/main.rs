@@ -1,5 +1,6 @@
-//! mterm CLI: `mterm run` (PTY↔engine), `mterm doctor`, `mterm profile`.
+//! mterm CLI: `mterm run` (PTY↔engine), `mterm doctor`, `mterm profile`, `mterm agent`.
 
+mod agent;
 mod doctor;
 mod profile;
 mod run;
@@ -14,6 +15,7 @@ fn main() {
         "run" => run::run(&args[2..]),
         "doctor" => doctor::doctor(),
         "profile" => profile::main(&args[2..]),
+        "agent" => agent::main(&args[2..]),
         "help" | "--help" | "-h" => {
             print_usage();
             Ok(())
@@ -40,6 +42,7 @@ usage:
   mterm run [args...]        jalankan command di PTY + engine
   mterm doctor               cek ketersediaan tool (git, node, dll)
   mterm profile list|use|show
+  mterm agent start|ask|stop
 ",
         env!("CARGO_PKG_VERSION")
     );

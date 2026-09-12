@@ -29,16 +29,17 @@ Iterasi APK tanpa kabel — pairing sekali per day via Wireless debugging (Andro
 - [x] Alternate screen buffer (swap primary ↔ alternate, CSI 1049)
 - [x] Scrollback buffer (ring buffer, cap configurable)
 - [x] Title setter (`ESC ] 0;title BEL` → `TerminalEvent::Title`)
-- [ ] OSC 8 hyperlink support (untuk opencode)
+- [x] OSC 8 hyperlink support (untuk opencode) — registry `u32→uri`, `%XX` unescape, cell ber-link
 - [ ] Kitty graphics protocol (minimal: transmit, display, delete)
-- [x] Unit test: parser + grid rendering (8 test)
+- [x] Unit test: parser + grid rendering (14 test)
 - [ ] Benchmark: 10k lines scroll throughput (test scroll dulu: `seq` real di `run`)
 
 ## Fase 2 — JNI Bridge
 **Tujuan**: Rust core bisa dipanggil dari Kotlin/Compose via JNI.
 
 - [x] FFI boundary: `nativeInit`, `nativeWrite`, `nativeResize`, `nativeCellAt`, `nativeDirty`
-- [ ] Callback dari Rust → Kotlin: `onCellUpdate`, `onTitleChange`, `onBell`, `onMouse`
+- [x] Callback → Kotlin: `onCellUpdate` (snapshot poll), `onTitleChange`, `onBell`,
+      `onMouse` via `nativeTakeEvent` (encoding `[type][len][payload]`)
 - [ ] Thread model: Rust emu thread + polling di Kotlin
 - [ ] Memory safety: bounds check, leak audit
 
@@ -87,7 +88,8 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
 ## Fase 6 — Agent IPC + Command Palette
 **Tujuan**: Agent (opencode/hermes) hidup di workspace dan bisa dipanggil dari chrome.
 
-- [ ] Local Unix socket / mpsc channel untuk IPC
+- [x] Unix socket IPC + protokol NDJSON (`mterm agent serve/start/ask/stop/reset/history`)
+- [ ] Backend LLM beneran (trait `Backend` siap; `StubBackend` echo untuk tes)
 - [ ] Slash command: `/ask`, `/explain`, `/fix`, `/commit`
 - [ ] Agent output renderer: markdown → terminal (table, code, link)
 - [ ] Workspace-scoped agent lifecycle (start/stop/restart per-project)
@@ -123,3 +125,12 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
 | 2026-09-12 | Deteksi exit vs zombie pakai `waitpid(WNOHANG)` | `kill(pid,0)` tetap bilang hidup untuk zombie |
 | 2026-09-12 | Eksekusi command lewat `execvp` + argv | `execv(whole-string)` gagal → "echo hallo" ≠ file path
 | 2026-09-12 | PTY/CLI kerja di Termux; APK di GitHub Actions | SDK ~GB nggak feasible di device-only |
+| 2026-09-12 | Indexed warna solve via `Color::to_rgb24()` di core | CLI & JNI renderer pakai peta xterm 256, bukan dummy |
+| 2026-09-12 | Hyperlink OSC 8: id `u32` di cell + registry `HashMap` | CellAttrs tetap `Copy`; uri tak ter-embed di tiap cell |
+| 2026-09-12 | CSI 1049 simpan/restore kursor + reset ke home | sesuai perilaku xterm; swap grid saja ternyata kurang |
+| 2026-09-12 | Event delivery via polling `nativeTakeEvent`, bukan callback push | tak perlu `jni` crate/thread attach; aman & tesable (~Termux) |
+| 2026-09-12 | Event queue FIFO di core (`VecDeque`) + Bell produksi | take_event order deterministik, JNI tinggal baca |
+| 2026-09-12 | Dukung intermediate `?` (DEC private mode) di CSI | vim/less kirim `CSI ? 1049 h` — sempat di-ignore total |
+| 2026-09-12 | Mouse tracking DEC 1000/1002/1003 → `Mouse(bool)` event | chrome tau kapan harus tangkap touch → encode SGR |
+| 2026-09-12 | Agent IPC: Unix socket NDJSON + sesi JSON per-workspace, backend pluggable | integrasi LLM via trait `Backend`; sekarang `StubBackend` echo |
+| 2026-09-12 | Skip reqwest/Groq HTTP (kompilasi berat di Termux) | CI (GH Actions) yang jadi gate tes; backend LLM menyusul |
