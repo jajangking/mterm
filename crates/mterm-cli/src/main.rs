@@ -3,6 +3,7 @@
 mod agent;
 mod doctor;
 mod profile;
+mod render;
 mod run;
 
 use std::io;

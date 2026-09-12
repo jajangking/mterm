@@ -528,6 +528,38 @@ fn client_ask(q: &str) -> io::Result<()> {
     Ok(())
 }
 
+/// Seperti `client_ask`, tapi delta dibuffer dan jawaban dirender markdown→ANSI
+/// sekali di akhir (`mterm agent ask --render ...`).
+fn client_ask_rendered(q: &str) -> io::Result<()> {
+    let mut s = connect()?;
+    send_json(&mut s, &json!({"cmd": "ask", "text": q}))?;
+    let reader = BufReader::new(s);
+    let mut buf = String::new();
+    for line in reader.lines().map_while(Result::ok) {
+        let Ok(v) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        match v["type"].as_str() {
+            Some("delta") => {
+                if let Some(text) = v["text"].as_str() {
+                    buf.push_str(text);
+                }
+            }
+            Some("done") => {
+                if let Some(err) = v["error"].as_str().filter(|e| !e.is_empty()) {
+                    eprintln!("agent: {err}");
+                }
+                let is_tty = std::io::IsTerminal::is_terminal(&std::io::stdout());
+                print!("{}", crate::render::markdown_to_ansi(&buf, is_tty));
+                println!();
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 // ── CLI entry ────────────────────────────────────────────────────────────
 
 pub fn main(args: &[String]) -> io::Result<()> {
@@ -603,19 +635,33 @@ pub fn main(args: &[String]) -> io::Result<()> {
             Ok(())
         }
         "ask" => {
-            let q = args
-                .get(1)
-                .map(String::as_str)
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            if q.is_empty() {
+            let mut render = false;
+            let mut q = None;
+            for a in args.iter().skip(1) {
+                match a.as_str() {
+                    "--render" => render = true,
+                    other if q.is_none() => q = Some(other.to_string()),
+                    _ => {}
+                }
+            }
+            let Some(text) = q else {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "usage: mterm agent ask \"<pertanyaan>\"",
+                    "usage: mterm agent ask [--render] \"<pertanyaan>\"",
+                ));
+            };
+            let text = text.trim().to_string();
+            if text.is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "usage: mterm agent ask [--render] \"<pertanyaan>\"",
                 ));
             }
-            client_ask(&q)
+            if render {
+                client_ask_rendered(&text)
+            } else {
+                client_ask(&text)
+            }
         }
         "reset" => {
             let _ = fs::remove_file(session_path());

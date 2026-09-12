@@ -95,7 +95,8 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
       env `MTERM_MODEL`; key dari `GROQ_API_KEY`/`~/.groq_key`; fallback `StubBackend`
 - [x] Slash command: `/ask`, `/explain`, `/fix`, `/commit` + context collector
       (file read cap 12k char; `git status`+`git diff --stat` untuk `/commit`)
-- [ ] Agent output renderer: markdown → terminal (table, code, link)
+- [x] Agent output renderer: markdown → ANSI (tanpa dep, subset: heading/bold/italic/
+      inline-code/fence/list/blockquote/hr/link) — `mterm agent ask --render`
 - [ ] Workspace-scoped agent lifecycle (start/stop/restart per-project)
 - [ ] Stderr + context collector → bundle ke agent (file+git sudah; stderr kolektor belum)
 
