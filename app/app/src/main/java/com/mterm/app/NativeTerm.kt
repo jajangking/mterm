@@ -101,11 +101,11 @@ class TermSession(private val handle: Long) {
      *  mulai dari CWD `cwd` (mis. folder data app). */
     fun startSession(
         cmd: String,
-        args: Array<String>,
+        args: Array<String>? = null,
         cwd: String,
         cols: Int,
         rows: Int,
-    ): Boolean = NativeTerm.nativeSessionStart(handle, cmd, args, cwd, cols, rows)
+    ): Boolean = NativeTerm.nativeSessionStart(handle, cmd, args ?: arrayOf(), cwd, cols, rows)
 
     /** Keystroke user → shell PTY (bukan feed engine langsung), plus echo
      *  lokal: byte yang sama juga di-feed ke engine biar ketikan langsung
