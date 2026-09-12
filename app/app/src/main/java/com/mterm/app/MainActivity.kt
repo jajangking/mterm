@@ -23,11 +23,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val rows = 24
-        val cols = 80
-        val session = rememberTermSession(cols, rows)
-
         setContent {
+            val rows = 24
+            val cols = 80
+            val session = rememberTermSession(cols, rows)
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     TermView(session)
@@ -64,7 +63,7 @@ fun TermView(session: TermSession) {
     }
 
     Box(Modifier.fillMaxSize()) {
-        val bmp = remember(columns = arrayOf(frame)) {
+        val bmp = remember(frame) {
             val pixels = session.snapshot(cols, rows)
             Bitmap.createBitmap(cols, rows, Bitmap.Config.ARGB_8888).apply {
                 setPixels(pixels, 0, cols, 0, 0, cols, rows)

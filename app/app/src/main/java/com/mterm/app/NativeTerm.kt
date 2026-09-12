@@ -1,14 +1,12 @@
 package com.mterm.app
 
 import android.os.SystemClock
-import androidx.annotation.NativeMethods
 
 object NativeTerm {
     init {
         System.loadLibrary("mterm_jni")
     }
 
-    @NativeMethods
     external fun nativeInit(cols: Int, rows: Int): Long
 
     external fun nativeDestroy(handle: Long)
@@ -30,7 +28,7 @@ sealed class TermEvent {
         /** Decode buffer `[type:u32][len:u32][payload]` dari `nativeTakeEvent`. */
         fun decode(buf: ByteArray, n: Int): TermEvent? {
             if (n < 8) return null
-            val type = buf.readLE(0)
+            val type = buf.readLE(0).toInt()
             val len = buf.readLE(4).toInt()
             if (n < 8 + len) return null
             return when (type) {
