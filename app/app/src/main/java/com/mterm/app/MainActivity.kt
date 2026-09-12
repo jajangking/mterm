@@ -1,35 +1,52 @@
 package com.mterm.app
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.os.Bundle
+import android.text.Editable
+import android.text.InputType
+import android.text.TextWatcher
+import android.view.KeyEvent
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            val rows = 24
             val cols = 80
+            val rows = 24
             val session = rememberTermSession(cols, rows)
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    TermView(session)
+                    Box {
+                        TermView(session)
+                        TermKeyboard(session)
+                    }
                 }
             }
         }
@@ -54,8 +71,12 @@ fun TermView(session: TermSession) {
     val rows = 24
     var frame by remember { mutableStateOf(0) }
 
+    // start_shell: PTY emulator dijalankan (sh), output → session
+    LaunchedEffect(session) {
+        session.startSession("/system/bin/sh", emptyArray(), cols, rows)
+    }
+
     DisposableEffect(session) {
-        // polling loop sederhana: re-render saat buffer dirty
         val timer = kotlin.concurrent.timer(period = 100) {
             if (session.dirty()) frame++
         }
@@ -72,6 +93,103 @@ fun TermView(session: TermSession) {
         Canvas(Modifier.fillMaxSize()) {
             drawImage(bmp.asImageBitmap())
         }
-        Text("mterm — workspace-first terminal", color = Color.Gray)
+        Text(
+            "ketuk layar untuk keyboard",
+            color = Color.Gray,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(8.dp)
+        )
+    }
+}
+
+@Composable
+fun TermKeyboard(session: TermSession) {
+    var edit by remember { mutableStateOf<EditText?>(null) }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .clickable {
+                val v = edit
+                if (v != null && !v.hasFocus()) {
+                    v.requestFocus()
+                    val ime =
+                        v.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                    ime.showSoftInput(v, InputMethodManager.SHOW_IMPLICIT)
+                }
+            }
+    ) {
+        AndroidView(
+            modifier = Modifier.alpha(0f),
+            factory = { ctx ->
+                EditText(ctx).apply {
+                    // multiline biar tombol enter IME menghasilkan "\n" → diterjemah jadi CR
+                    isSingleLine = false
+                    isFocusableInTouchMode = true
+                    setSelectAllOnFocus(false)
+                    setRawInputType(InputType.TYPE_CLASS_TEXT)
+                    var prev = ""
+                    var suppress = false
+                    addTextChangedListener(object : TextWatcher {
+                        override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                        override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                        override fun afterTextChanged(s: Editable?) {
+                            if (suppress || s == null) return
+                            val cur = s.toString()
+                            when {
+                                cur.length > prev.length -> {
+                                    val added = cur.substring(prev.length)
+                                    val bytes = added.replace("\n", "\r").toByteArray(Charsets.UTF_8)
+                                    session.input(bytes)
+                                    if (added.contains("\n")) {
+                                        suppress = true
+                                        setText("")
+                                        suppress = false
+                                        prev = ""
+                                    } else {
+                                        prev = cur
+                                    }
+                                }
+                                cur.length < prev.length -> {
+                                    val n = prev.length - cur.length
+                                    repeat(n) { session.input(byteArrayOf(0x7f.toByte())) }
+                                    prev = cur
+                                }
+                                else -> prev = cur
+                            }
+                        }
+                    })
+                    setOnKeyListener { _, keyCode, event ->
+                        if (event?.action == KeyEvent.ACTION_DOWN) {
+                            when (keyCode) {
+                                KeyEvent.KEYCODE_TAB -> {
+                                    session.input(byteArrayOf(0x09))
+                                    true
+                                }
+                                KeyEvent.KEYCODE_DPAD_UP -> {
+                                    session.input("\u001b[A".toByteArray())
+                                    true
+                                }
+                                KeyEvent.KEYCODE_DPAD_DOWN -> {
+                                    session.input("\u001b[B".toByteArray())
+                                    true
+                                }
+                                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                    session.input("\u001b[C".toByteArray())
+                                    true
+                                }
+                                KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                    session.input("\u001b[D".toByteArray())
+                                    true
+                                }
+                                else -> false
+                            }
+                        } else false
+                    }
+                    edit = this
+                    requestFocus()
+                }
+            }
+        )
     }
 }
