@@ -91,6 +91,18 @@ impl Session {
     /// Spawn command di PTY baru. Kembalikan session dengan master fd untuk dibaca.
     /// `cmd` dieksekusi via PATH (`execvp`).
     pub fn spawn(cmd: &str, args: &[String], cols: u16, rows: u16) -> io::Result<Self> {
+        Self::spawn_at(cmd, args, None, cols, rows)
+    }
+
+    /// Sama dengan [Self::spawn], tapi child `chdir` ke `cwd` sebelum exec
+    /// (misal folder data app Android biar shell mulai di situ).
+    pub fn spawn_at(
+        cmd: &str,
+        args: &[String],
+        cwd: Option<&str>,
+        cols: u16,
+        rows: u16,
+    ) -> io::Result<Self> {
         let RawFdPair(master_fd, slave_fd) = open_pty(cols, rows)?;
 
         let pid = unsafe { libc::fork() };
@@ -115,6 +127,15 @@ impl Session {
             unsafe {
                 libc::setsid();
                 libc::ioctl(slave_fd, libc::TIOCSCTTY as _, 0);
+                if let Some(dir) = cwd {
+                    let cdir = match CString::new(dir.as_bytes()) {
+                        Ok(c) => c,
+                        Err(_) => libc::_exit(1),
+                    };
+                    if libc::chdir(cdir.as_ptr()) != 0 {
+                        libc::_exit(1);
+                    }
+                }
                 libc::dup2(slave_fd, 0);
                 libc::dup2(slave_fd, 1);
                 libc::dup2(slave_fd, 2);

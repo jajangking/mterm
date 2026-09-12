@@ -284,9 +284,16 @@ fn color_u32(c: Color) -> u32 {
 const RUNNING: i32 = -1;
 
 /// Spawn PTY + emu thread yang feed ke terminal di `handle`; PTY winsize
-/// (cols, rows) ikut terminal. Kembalikan false kalau handle tak ada / masih
-/// ada session aktif belum selesai.
-fn spawn_session(handle: u64, cmd: &str, args: Vec<String>, cols: i32, rows: i32) -> bool {
+/// (cols, rows) ikut terminal. `cwd = None` → inherit cwd proses. Kembalikan
+/// false kalau handle tak ada / masih ada session aktif belum selesai.
+fn spawn_session(
+    handle: u64,
+    cmd: &str,
+    args: Vec<String>,
+    cwd: Option<&str>,
+    cols: i32,
+    rows: i32,
+) -> bool {
     let Some(slot) = runner_slot(handle) else {
         return false;
     };
@@ -311,7 +318,7 @@ fn spawn_session(handle: u64, cmd: &str, args: Vec<String>, cols: i32, rows: i32
 
     let cols = clamp_dim(cols, MAX_COLS) as u16;
     let rows = clamp_dim(rows, MAX_ROWS) as u16;
-    let session = match Session::spawn(cmd, &args, cols, rows) {
+    let session = match Session::spawn_at(cmd, &args, cwd, cols, rows) {
         Ok(s) => s,
         Err(_) => return false,
     };
@@ -568,7 +575,7 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeRunnerResize(
     })
 }
 
-/// `nativeSessionStart(handle, cmd, args: Array<String>, cols, rows): Boolean`
+/// `nativeSessionStart(handle, cmd, args: Array<String>, cwd, cols, rows): Boolean`
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeSessionStart(
@@ -577,6 +584,7 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeSessionStart(
     handle: jlong,
     cmd: JString,
     args: JObjectArray,
+    cwd: JString,
     cols: jint,
     rows: jint,
 ) -> jboolean {
@@ -589,7 +597,12 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeSessionStart(
             Some(a) => a,
             None => return JNI_FALSE,
         };
-        if spawn_session(handle as u64, &cmd, args, cols, rows) {
+        let cwd: String = match env.get_string(&cwd) {
+            Ok(s) => s.into(),
+            Err(_) => return JNI_FALSE,
+        };
+        let cwd = if cwd.is_empty() { None } else { Some(cwd.as_str()) };
+        if spawn_session(handle as u64, &cmd, args, cwd, cols, rows) {
             JNI_TRUE
         } else {
             JNI_FALSE
@@ -966,6 +979,7 @@ mod tests {
             h,
             "sh",
             vec!["-c".into(), "printf 'jni-runner-ok\n'; exit 0".into()],
+            None,
             40,
             10,
         );
@@ -989,6 +1003,7 @@ mod tests {
             h,
             "sh",
             vec!["-c".into(), "exit 7".into()],
+            None,
             40,
             10
         ));
@@ -1006,6 +1021,7 @@ mod tests {
                 "-c".into(),
                 "read -r line; printf 'got:%s' \"$line\"".into()
             ],
+            None,
             40,
             10,
         ));
@@ -1026,12 +1042,13 @@ mod tests {
             h,
             "sh",
             vec!["-c".into(), "sleep 1; exit 0".into()],
+            None,
             40,
             10
         ));
         // masih jalan → respawn ditolak
         assert!(
-            !spawn_session(h, "sh", vec!["-c".into(), "exit 0".into()], 40, 10),
+            !spawn_session(h, "sh", vec!["-c".into(), "exit 0".into()], None, 40, 10),
             "aktif → tolak spawn kedua"
         );
 
@@ -1042,6 +1059,7 @@ mod tests {
             h,
             "sh",
             vec!["-c".into(), "printf 'again\n'; exit 0".into()],
+            None,
             40,
             10
         ));
@@ -1058,6 +1076,7 @@ mod tests {
             h,
             "sh",
             vec!["-c".into(), "sleep 5; exit 0".into()],
+            None,
             40,
             10
         ));
@@ -1082,6 +1101,7 @@ mod tests {
             h,
             "sh",
             vec!["-c".into(), "sleep 5; exit 0".into()],
+            None,
             40,
             10
         ));

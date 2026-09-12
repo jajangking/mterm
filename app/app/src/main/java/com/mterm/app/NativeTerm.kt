@@ -22,6 +22,7 @@ object NativeTerm {
         handle: Long,
         cmd: String,
         args: Array<String>,
+        cwd: String,
         cols: Int,
         rows: Int,
     ): Boolean
@@ -92,12 +93,24 @@ class TermSession(private val handle: Long) {
 
     fun resize(cols: Int, rows: Int) = NativeTerm.nativeResize(handle, cols, rows)
 
-    /** Spawn PTY + Rust emu thread yang feed ke terminal handle ini. */
-    fun startSession(cmd: String, args: Array<String>, cols: Int, rows: Int): Boolean =
-        NativeTerm.nativeSessionStart(handle, cmd, args, cols, rows)
+    /** Spawn PTY + Rust emu thread yang feed ke terminal handle ini; shell
+     *  mulai dari CWD `cwd` (mis. folder data app). */
+    fun startSession(
+        cmd: String,
+        args: Array<String>,
+        cwd: String,
+        cols: Int,
+        rows: Int,
+    ): Boolean = NativeTerm.nativeSessionStart(handle, cmd, args, cwd, cols, rows)
 
-    /** Keystroke user → shell PTY (bukan feed engine langsung). */
-    fun input(bytes: ByteArray): Boolean = NativeTerm.nativeRunnerInput(handle, bytes)
+    /** Keystroke user → shell PTY (bukan feed engine langsung), plus echo
+     *  lokal: byte yang sama juga di-feed ke engine biar ketikan langsung
+     *  kelihatan (tty di perangkat echo-off). */
+    fun input(bytes: ByteArray): Boolean {
+        val ok = NativeTerm.nativeRunnerInput(handle, bytes)
+        if (ok) NativeTerm.nativeWrite(handle, bytes)
+        return ok
+    }
 
     /** -1 = masih jalan; >=0 = exit code; negatif lain = sinyal. */
     fun sessionExit(): Int = NativeTerm.nativeRunnerExit(handle)
