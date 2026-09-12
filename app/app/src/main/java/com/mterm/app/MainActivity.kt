@@ -81,29 +81,12 @@ fun TermView(session: TermSession) {
     val rows = 24
     var frame by remember { mutableStateOf(0) }
 
-    DisposableEffect(session) {
-        // debug: dump isi grid + pixel + dirty/frame ke logcat (hapus setelah verifikasi)
-        val dump = kotlin.concurrent.timer(period = 2000) {
-            android.util.Log.i("mterm", "dump f=$frame dirty=${session.dirty()}")
-            val px = session.snapshot(80, 24)
-            android.util.Log.i(
-                "mterm",
-                "px0=" + (0 until 24).joinToString(" ") { String.format("%08x", px[it]) }
-            )
-            android.util.Log.i(
-                "mterm",
-                "grid=[" + session.gridText().replace("\n", "|") + "]"
-            )
-        }
-        onDispose { dump.cancel() }
-    }
-
     // start_shell: PTY emulator dijalankan (sh), output → session
     val ctx = LocalContext.current
     LaunchedEffect(session) {
         session.startSession(
             "/system/bin/sh",
-            arrayOf("-c", "echo BANNER-MTERM; exec /system/bin/sh"),
+            null,
             ctx.filesDir.path,
             cols,
             rows,
