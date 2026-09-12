@@ -601,7 +601,11 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeSessionStart(
             Ok(s) => s.into(),
             Err(_) => return JNI_FALSE,
         };
-        let cwd = if cwd.is_empty() { None } else { Some(cwd.as_str()) };
+        let cwd = if cwd.is_empty() {
+            None
+        } else {
+            Some(cwd.as_str())
+        };
         if spawn_session(handle as u64, &cmd, args, cwd, cols, rows) {
             JNI_TRUE
         } else {
