@@ -1,0 +1,24 @@
+# Rust
+target/
+Cargo.lock
+
+# Android
+app/.gradle/
+app/build/
+app/local.properties
+app/**/build/
+*.apk
+*.aab
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Env / secrets
+.mterm.env
+*.key
+*.keystore
+
+# OS
+.DS_Store

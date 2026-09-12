@@ -1,0 +1,19 @@
+[package]
+name = "mterm-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "mterm CLI: run, doctor, profile."
+default-run = "mterm"
+
+[[bin]]
+name = "mterm"
+path = "src/main.rs"
+
+[dependencies]
+mterm-core = { path = "../core" }
+mterm-pty  = { path = "../pty" }
+libc.workspace = true
+crossterm.workspace = true
+serde.workspace = true
+serde_json.workspace = true

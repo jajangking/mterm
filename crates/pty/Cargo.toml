@@ -1,0 +1,10 @@
+[package]
+name = "mterm-pty"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PTY session manager (openpt/spawn) + PID file anti footgun."
+
+[dependencies]
+libc.workspace = true
+thiserror = "2"

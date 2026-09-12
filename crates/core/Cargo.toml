@@ -1,0 +1,10 @@
+[package]
+name = "mterm-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "mterm terminal engine: VT parsing, cell grid, scrollback."
+
+[dependencies]
+vte.workspace = true
+thiserror = "2"

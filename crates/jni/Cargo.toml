@@ -1,0 +1,15 @@
+[package]
+name = "mterm-jni"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "JNI bridge antara Rust core dan Android chrome (Kotlin/Compose)."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+mterm-core = { path = "../core" }
+vte.workspace = true
+once_cell = "1"
+parking_lot = "0.12"
