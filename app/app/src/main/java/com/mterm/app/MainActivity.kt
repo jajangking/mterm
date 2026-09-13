@@ -135,6 +135,7 @@ fun TermView(session: TermSession) {
                     .fillMaxSize()
                     .onSizeChanged { canvasLog = "${it.width}x${it.height}" }
             ) {
+                val t0 = android.os.SystemClock.elapsedRealtime()
                 drawRect(color = Color.Red, topLeft = Offset(200f, 300f), size = Size(500f, 300f))
                 drawText(
                     textMeasurer = textMeasurer,
@@ -180,6 +181,7 @@ fun TermView(session: TermSession) {
                 } catch (t: Throwable) {
                     android.util.Log.e("mterm", "draw error: ${t}")
                 }
+                android.util.Log.i("mterm", "draw done ms=${android.os.SystemClock.elapsedRealtime() - t0}")
             }
         }
         Text(
