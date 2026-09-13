@@ -27,6 +27,8 @@
 | **Android renderer (Chrome)** | ✅ **MILESTONE: teks tampil di device** (Transsion) — render per-baris via `Text` composable (Canvas draw TIDAK tampil di device itu); faktor advance mono 0.62 supaya tiap kolom pas 1 sel; grid **gelap penuh** via `SpanStyle(color, background)` per-sel, spasi/NUL dijadikan `' '` TIDAK di-skip (commit `acdde40`); keyboard tersembunyi `EditText` + input PTY via `session.input`, d-pad/tab → escape sequence |
 | **Ukuran terminal dinamis** (Fase 3 Chrome) | ✅ font tetap 13sp → `cols/rows` diturunkan dari constrain layar (`BoxWithConstraints`); auto-`sessionResize` saat rotasi / IME buka-tutup. **Terbukti di device**: `cols=48`, `rows` 54→36 saat keyboard naik (commit `f39062a`) |
 | **Input IME live di device** | ✅ huruf + spasi (`%s`, byte 32) + Enter masuk PTY (`ok=true`), frame render naik; `echo HALO DUNIA` jalan via adb `input text` — verified 2026-09-13 |
+| **IME diff prefix-retype** (Fase 3) | ✅ ganti diff ekor (`cur.substring(prev.length)` desync saat autocorrect ganti tengah teks) → **common-prefix + backspace sisanya + ketik ulang**; aman utk autocorrect/IME replacement. Backspace terkirim `0x7f` terverifikasi di device (commit `caeeac9`) |
+| **Scroll gesture → scrollback** (Fase 3) | ✅ drag vertikal di layar → `session.scrollTo` (offset di-`coerceIn(0, scrollMax)`), tap murni → show keyboard (detectDragGestures onDragEnd+onDragCancel krn tap = cancel); `LocalViewConfiguration.touchSlop` = **Float px** (bukan Dp) di Compose ini. **Terbukti**: `seq 1 40` → `scroll off=2 max=18` saat swipe (commit `bd5cdfa`) |
 
 ## Cara resume
 
@@ -74,10 +76,10 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
 
 ## Next todo yang disarankan
 
-1. **Fase 3 (Android Chrome) — sisa**: (a) IME backspace/autocorrect/superscript —
-   sekarang backspace via `cur.length < prev.length` kirim 0x7f per char (autocorrect
-   bisa menyulap panjang sekaligus); (b) scroll gesture → `scrollTo`/`scrollMax`,
-   tap → `sgrMouse` → `input`. Ukuran dinamis ✅ done.
+1. **Fase 3 (Android Chrome) — sisa**: (a) **mouse/tap** → `sgrMouse` → `input`
+   (cegah kalau `TermEvent.Mouse(enabled)` false; sekarang tap = show keyboard);
+   (b) durasi: hapus `yes` flood — tidak relevan. Ukuran dinamis ✅, IME diff ✅,
+   scroll ✅ done.
 2. **Fase 4 lifecycle (CI)**: auto-save term ke file app-private via
    `saveState`/`loadState` saat background/foreground; `TermService`
    foreground service + notification persistent.
@@ -206,6 +208,12 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
 - **2026-09-13** Fase 3 Chrome: **ukuran terminal dinamis** — font 13sp tetap,
   `cols/rows` dari constrain (`BoxWithConstraints`, density), `remember` key +
   `LaunchedEffect(started)` untuk start-once lalu `sessionResize` saat rotasi/IME.
-  Terbukti di device: `cols=48`, `rows` 54→36 saat keyboard buka (logcat tick).
-  Input IME live: huruf/spasi/Enter sampai PTY (`ok=true`), `echo HALO DUNIA`
-  via `adb input text` jalan. Commit `f39062a`.
+  Terbukti di device: `cols=48`, `rows` 54→36 saat keyboard buka (logcat tick),
+  landscape `104x25`. Input IME live: huruf/spasi/Enter sampai PTY (`ok=true`),
+  `echo HALO DUNIA` via `adb input text` jalan. Commit `f39062a`.
+- **2026-09-13** Fase 3 Chrome: **IME diff prefix-retype** (backspace = `0x7f`
+  per char yang dibuang, bukan blok ekor) + **scroll gesture** (drag → scrollTo,
+  tap → keyboard; `onDragCancel` untuk tap murni). Kemenangan debugging:
+  `LocalViewConfiguration.touchSlop` di Compose ini **Float px**, bukan `Dp`
+  (3 fix build putar-putar `.toPx()`). Terverifikasi device: `seq 1 40` →
+  `scroll off=2 max=18`. Commit `caeeac9` → `bd5cdfa`.
