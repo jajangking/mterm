@@ -14,6 +14,8 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -24,10 +26,13 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -63,15 +68,39 @@ class MainActivity : ComponentActivity() {
             val cols = 80
             val rows = 24
             val session = rememberTermSession(cols, rows)
-            val dark = darkColorScheme(
-                background = Color(0xFF0B0B0D),
-                surface = Color(0xFF0B0B0D),
-                onBackground = Color(0xFFE0E0E0),
-            )
-            MaterialTheme(colorScheme = dark) {
+
+            val settingsState = rememberSettings()
+            val s = settingsState.value
+            val dark = s.dark
+            val pageColor = if (dark) Color(0xFF0B0B0D) else Color(0xFFF2F1EE)
+            val scheme = if (dark) {
+                darkColorScheme(
+                    background = pageColor,
+                    surface = Color(0xFF15151A),
+                    onBackground = Color(0xFFE0E0E0),
+                )
+            } else {
+                lightColorScheme(
+                    background = pageColor,
+                    surface = Color(0xFFFFFFFF),
+                    onBackground = Color(0xFF101014),
+                )
+            }
+
+            // Warna default sel terminal ikut tema; bump tick biar sel re-render.
+            var tick by remember { mutableStateOf(0) }
+            LaunchedEffect(dark) {
+                session.defaultBg = if (dark) 0xFF1B1B1F.toInt() else 0xFFFFFFFF.toInt()
+                session.defaultFg = if (dark) 0xFFE0E0E0.toInt() else 0xFF101014.toInt()
+                tick++
+            }
+
+            var settingsOpen by remember { mutableStateOf(false) }
+
+            MaterialTheme(colorScheme = scheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF0B0B0D),
+                    color = pageColor,
                 ) {
                     Box(
                         Modifier
@@ -80,7 +109,33 @@ class MainActivity : ComponentActivity() {
                             .navigationBarsPadding()
                             .imePadding()
                     ) {
-                        TermView(session)
+                        TermView(
+                            session = session,
+                            fontSp = s.fontSp,
+                            hint = s.accent,
+                            tick = tick,
+                        )
+                        Text(
+                            "⚙",
+                            color = Color(s.accent),
+                            fontSize = (s.fontSp + 4).sp,
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(10.dp)
+                                .background(
+                                    Color.Black.copy(alpha = 0.35f),
+                                    CircleShape,
+                                )
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                                .clickable { settingsOpen = true }
+                        )
+                        if (settingsOpen) {
+                            SettingsPanel(
+                                settings = s,
+                                onChange = settingsState.onSave,
+                                onClose = { settingsOpen = false },
+                            )
+                        }
                     }
                 }
             }
@@ -101,7 +156,12 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun TermView(session: TermSession) {
+fun TermView(
+    session: TermSession,
+    fontSp: Float = 13f,
+    hint: Int = 0xFF00E5A0.toInt(),
+    tick: Int = 0,
+) {
     var frame by remember { mutableStateOf(0) }
 
     // start_shell: PTY emulator dijalankan (sh), output → session
@@ -139,9 +199,10 @@ fun TermView(session: TermSession) {
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        // Ukuran dialog dari constrain layar: font tetap → turunkan cols/rows.
+        // Ukuran dialog dari constrain layar: font dari settings → cols/rows
+        // ikut turun/naik (auto-resize PTY via LaunchedEffect di bawah).
         val density = LocalDensity.current
-        val font = 13.sp
+        val font = fontSp.sp
         val lh = font * 1.2f
         val cellW = with(density) { font.toPx() * 0.62f }
         val cellH = with(density) { lh.toPx() }
@@ -177,7 +238,7 @@ fun TermView(session: TermSession) {
 
         Column(Modifier.fillMaxSize()) {
             for (row in 0 until rows) {
-                val line = remember(row, frame, cols) {
+                val line = remember(row, frame, cols, tick) {
                     buildAnnotatedString {
                         for (x in 0 until cols) {
                             val c = session.cellAt(x, row) ?: continue
@@ -210,7 +271,7 @@ fun TermView(session: TermSession) {
         }
         Text(
             "ketuk layar untuk keyboard",
-            color = Color.Gray,
+            color = Color(hint),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(8.dp)

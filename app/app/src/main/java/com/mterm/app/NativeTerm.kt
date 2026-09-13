@@ -91,6 +91,11 @@ data class TermCell(
 )
 
 class TermSession(private val handle: Long) {
+    /** Warna polyfill default (JNI `0` = warna tak eksplisit). Variabel biar
+     *  bisa ganti sesama runtime (tema gelap/terang di settings). */
+    var defaultBg: Int = 0xFF1B1B1F.toInt()
+    var defaultFg: Int = 0xFFE0E0E0.toInt()
+
     fun write(bytes: ByteArray) = NativeTerm.nativeWrite(handle, bytes)
 
     fun resize(cols: Int, rows: Int) = NativeTerm.nativeResize(handle, cols, rows)
@@ -176,28 +181,23 @@ class TermSession(private val handle: Long) {
         return pixels
     }
 
-    /** Pewarna default (`0` dari JNI) → polyfill: bg gelap, fg terang. */
+    /** Pewarna default (`0` dari JNI) → polyfill per-tema. */
     private fun color(c: Int): Int = if ((c ushr 24) == 0) {
-        if (c == 0) darkBg else c or 0xFF000000.toInt()
+        if (c == 0) defaultBg else c or 0xFF000000.toInt()
     } else c
 
     /** Ambil satu sel: (fg ARGB, bg ARGB, char). Warna tak-eksplisit
-     *  (alpha 0 dari JNI) di-polyfill: bg gelap, fg terang. */
+     *  (alpha 0 dari JNI) di-polyfill sesuai tema aktif. */
     fun cellAt(x: Int, y: Int): Triple<Int, Int, Char>? {
         val out = ByteArray(12)
         if (!NativeTerm.nativeCellAt(handle, x, y, out)) return null
         val fg = readLE(out, 0)
         val bg = readLE(out, 4)
         return Triple(
-            if ((fg ushr 24) == 0) brightFg else fg,
-            if ((bg ushr 24) == 0) darkBg else bg,
+            if ((fg ushr 24) == 0) defaultFg else fg,
+            if ((bg ushr 24) == 0) defaultBg else bg,
             readLE(out, 8).toChar(),
         )
-    }
-
-    companion object {
-        val darkBg = 0xFF1B1B1F.toInt()
-        val brightFg = 0xFFE0E0E0.toInt()
     }
 
     fun dirty(): Boolean = NativeTerm.nativeDirty(handle)
@@ -217,8 +217,8 @@ class TermSession(private val handle: Long) {
      * fg terang.
      */
     private fun paint(fg: Int, bg: Int, ch: Char): Int {
-        val b = if ((bg ushr 24) == 0) darkBg else bg
-        val f = if ((fg ushr 24) == 0) brightFg else fg
+        val b = if ((bg ushr 24) == 0) defaultBg else bg
+        val f = if ((fg ushr 24) == 0) defaultFg else fg
         return if (ch == ' ') b else f
     }
 }
