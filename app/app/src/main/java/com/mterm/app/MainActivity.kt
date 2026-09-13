@@ -91,16 +91,23 @@ fun TermView(session: TermSession) {
     var started by remember { mutableStateOf(false) }
     var cols by remember { mutableStateOf(80) }
     var rows by remember { mutableStateOf(24) }
+    var mouseMode by remember { mutableStateOf(false) }
 
     DisposableEffect(session) {
         var lastTick = 0L
         val timer = kotlin.concurrent.timer(period = 100) {
             val d = session.dirty()
             if (d) frame++
+            while (true) {
+                when (val ev = session.takeEvent() ?: break) {
+                    is TermEvent.Mouse -> mouseMode = ev.enabled
+                    else -> {}
+                }
+            }
             val now = android.os.SystemClock.elapsedRealtime()
             if (now - lastTick > 2000) {
                 lastTick = now
-                android.util.Log.i("mterm", "tick d=$d f=$frame cols=$cols rows=$rows")
+                android.util.Log.i("mterm", "tick d=$d f=$frame cols=$cols rows=$rows mouse=$mouseMode")
             }
         }
         onDispose { timer.cancel() }
@@ -183,12 +190,18 @@ fun TermView(session: TermSession) {
                 .align(Alignment.BottomEnd)
                 .padding(8.dp)
         )
-        TermKeyboard(session, cellH, onScroll = { frame++ })
+        TermKeyboard(session, cellH, cellW, mouseMode, onScroll = { frame++ })
     }
 }
 
 @Composable
-fun TermKeyboard(session: TermSession, cellH: Float, onScroll: () -> Unit) {
+fun TermKeyboard(
+    session: TermSession,
+    cellH: Float,
+    cellW: Float,
+    mouseMode: Boolean,
+    onScroll: () -> Unit,
+) {
     var edit by remember { mutableStateOf<EditText?>(null) }
     var scrollOffset by remember { mutableStateOf(0) }
     val vc = LocalViewConfiguration.current
@@ -196,9 +209,7 @@ fun TermKeyboard(session: TermSession, cellH: Float, onScroll: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .pointerInput(session) {
-                var totalDy = 0f
-                var startOff = 0
+            .pointerInput(session, mouseMode) {
                 fun showKeyboard() {
                     val v = edit
                     if (v != null && !v.hasFocus()) {
@@ -208,30 +219,56 @@ fun TermKeyboard(session: TermSession, cellH: Float, onScroll: () -> Unit) {
                         ime.showSoftInput(v, InputMethodManager.SHOW_IMPLICIT)
                     }
                 }
+
+                // kood SGR (sinkron dgn crates/core/src/mouse.rs): BTN_LEFT=0, MOTION=32.
+                fun sendMouse(code: Int, release: Boolean, x: Int, y: Int) {
+                    if (!mouseMode) return
+                    val bytes = session.sgrMouse(code, 0, release, x, y)
+                    if (bytes.isNotEmpty()) session.input(bytes)
+                }
+
+                var totalDy = 0f
+                var startOff = 0
+                var lastX = 1
+                var lastY = 1
                 detectDragGestures(
-                    onDragStart = {
+                    onDragStart = { pos ->
                         totalDy = 0f
                         startOff = scrollOffset
+                        lastX = (pos.x / cellW).toInt() + 1
+                        lastY = (pos.y / cellH).toInt() + 1
+                        if (mouseMode) sendMouse(0, false, lastX, lastY)
                     },
                     onDrag = { change, dragAmount ->
                         change.consume()
-                        totalDy += dragAmount.y
-                        if (kotlin.math.abs(totalDy) > slopPx) {
-                            val off = (startOff - (totalDy / cellH).toInt())
-                                .coerceIn(0, session.scrollMax())
-                            if (off != scrollOffset) {
-                                scrollOffset = off
-                                session.scrollTo(off)
-                                android.util.Log.i("mterm", "scroll off=$off max=${session.scrollMax()}")
-                                onScroll()
+                        val x = (change.position.x / cellW).toInt() + 1
+                        val y = (change.position.y / cellH).toInt() + 1
+                        if (mouseMode) {
+                            lastX = x
+                            lastY = y
+                            totalDy += dragAmount.y
+                            if (kotlin.math.abs(totalDy) > slopPx) sendMouse(32, false, x, y)
+                        } else {
+                            totalDy += dragAmount.y
+                            if (kotlin.math.abs(totalDy) > slopPx) {
+                                val off = (startOff - (totalDy / cellH).toInt())
+                                    .coerceIn(0, session.scrollMax())
+                                if (off != scrollOffset) {
+                                    scrollOffset = off
+                                    session.scrollTo(off)
+                                    android.util.Log.i("mterm", "scroll off=$off max=${session.scrollMax()}")
+                                    onScroll()
+                                }
                             }
                         }
                     },
                     onDragEnd = {
-                        if (kotlin.math.abs(totalDy) <= slopPx) showKeyboard()
+                        if (mouseMode) sendMouse(0, true, lastX, lastY)
+                        else if (kotlin.math.abs(totalDy) <= slopPx) showKeyboard()
                     },
                     onDragCancel = {
-                        if (kotlin.math.abs(totalDy) <= slopPx) showKeyboard()
+                        if (mouseMode) sendMouse(0, true, lastX, lastY)
+                        else if (kotlin.math.abs(totalDy) <= slopPx) showKeyboard()
                     },
                 )
             }
