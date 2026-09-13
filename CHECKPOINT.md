@@ -24,13 +24,14 @@
 | **Stderr collector** (Fase 6) | ✅ `mterm run` → `last_stderr.txt` (exit code + tail output, ANSI dibuang) → otomatis dibundle jadi system msg di `agent ask`; live-proven: Groq tahu error `gcc` terakhir (mterm-cli bin 27 test; total 104) |
 | `Session` exit semantics | ✅ `exited()` sekarang cache kode (dulu setelah reap selalu kasih `Some(0)`); drop reap anti-zombie tetap |
 | End-to-end engine↔PTY di Termux | ✅ diverifikasi (echo, seq 500, SGR) |
+| **Android renderer (Chrome)** | ✅ **MILESTONE: teks tampil di device** (Transsion) — render per-baris via `Text` composable (Canvas draw TIDAK tampil di device itu); faktor advance mono 0.62 supaya tiap kolom pas 1 sel; grid **gelap penuh** via `SpanStyle(color, background)` per-sel, spasi/NUL dijadikan `' '` TIDAK di-skip (commit `acdde40`); keyboard tersembunyi `EditText` + input PTY via `session.input`, d-pad/tab → escape sequence |
 
 ## Cara resume
 
 ```sh
 cd ~/mterm
-git status                       # sesi terakhir: CI android belum tuntas
-cargo test -p mterm-core 2>&1 | grep "test result"   # 18 passed
+git status                       # kerjaan terbaru: renderer Android (lihat Riwayat)
+cargo test --workspace 2>&1 | grep "test result"   # 113 passed (core 48 + jni 21 + pty 8 + cli 34 + e2e 2)
 cargo clippy --workspace --all-targets 2>&1 | tail -1   # 0 warning
 curl -s "https://api.github.com/repos/jajangking/mterm/actions/runs?per_page=1" \
   | grep -E '"head_sha"|"status"|"conclusion"'
@@ -71,10 +72,11 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
 
 ## Next todo yang disarankan
 
-1. **Fase 3 (Android Chrome)**: panggil `TermSession.startSession(cmd, args, cols, rows)`
-   di `TermService`, poll grid via `dirty`+`cellAt` per frame, input via
-   `input()`; scroll gesture → `scrollTo`/`scrollMax`, tap → `sgrMouse`→`input`.
-   EmuRunner + viewport + mouse semua sudah siap di Rust (91 test hijau, 0 clippy).
+1. **Fase 3 (Android Chrome)**: renderer sudah MILESTONE di device — lanjut:
+   input IME (backspace, autocorrect, superscript ⚠) + scroll gesture →
+   `scrollTo`/`scrollMax`, tap → `sgrMouse`→`input`; ganti hardcode `cols=80
+   rows=24` dengan ukuran dinamis dari `BoxWithConstraints`.
+   EmuRunner + viewport + mouse semua sudah siap di Rust (113 test hijau, 0 clippy).
 2. **Fase 4 lifecycle (CI)**: auto-save term ke file app-private via
    `saveState`/`loadState` saat background/foreground; `TermService`
    foreground service + notification persistent.
@@ -82,7 +84,6 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
    standalone dulu; Groq HTTP di-skip untuk sekarang).
 4. Bersihkan: hapus step `Publish failure log for diagnosis` dari ci.yml + branch
    `ci-logs` kalau sudah tidak dibutuhkan; kembalikan repo ke private.
-4. Fase 3 lanjut: Chrome Compose (Terminal view / SurfaceView).
 
 ## Riwayat sesi
 
@@ -184,3 +185,20 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
   punya gradle; jar diunduh dari tag `v8.11.1` repo gradle.
 - `.gitignore`: `Cargo.lock` di-ignore; biarkan (keputusan lama), dev dep
   pinning timing bias.
+- **Editor vs device**: di device Transsion, `Canvas.drawText` (Compose DrawScope)
+  tidak menampilkan apa pun — pakai `Text` composable per-baris (commit `d79a184`).
+- **Sel kosong jangan di-skip**: spasi/NUL tetap di-render sebagai `' '` dengan
+  `SpanStyle(background)` — kalau di-`continue`, latar gelap "bolong" (commit `acdde40`).
+- **Advance mono**: `FontFamily.Monospace` di device bukan 1:1 per sel —
+  scale `fontSize = (cellW / 0.62).sp` agar tiap kolom pas 1 sel (commit `c155b49`).
+
+## Riwayat sesi (2026-09-13: renderer Android selesai di device)
+
+- **2026-09-13** Renderer Chrome: MILESTONE teks tampil di device Transsion.
+  Lesit: Canvas draw tak tampil → `Text` per-baris; advance mono 0.62; grid
+  gelap penuh span per-sel (spasi/NUL → `' '`, tidak di-skip).
+  Commit: `d79a184` (Text), `c155b49` (mono 0.62), `c368c70` (MILESTONE + bg per-sel),
+  `2499a40` (fallback Column bg), `387ff02` (import background), `12c0e69`,
+  `048443e` (pola append per-sel), `acdde40` (grid gelap penuh, final).
+  Rust: 113 test pass (core 48 + jni 21 + pty 8 + cli 34 + e2e 2),
+  0 clippy. Semua di-push ke `origin/main`.
