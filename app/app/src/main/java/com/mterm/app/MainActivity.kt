@@ -139,7 +139,6 @@ fun TermView(session: TermSession) {
             }
         }
         Text(
-        Text(
             "ketuk layar untuk keyboard",
             color = Color.Gray,
             modifier = Modifier
