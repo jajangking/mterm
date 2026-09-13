@@ -11,9 +11,12 @@ import android.widget.EditText
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -34,6 +37,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -106,20 +110,31 @@ fun TermView(session: TermSession) {
     }
 
     Box(Modifier.fillMaxSize()) {
+        var canvasLog by remember { mutableStateOf("?") }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(120.dp)
+                .background(Color.Magenta)
+                .padding(top = 30.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(canvasLog, color = Color.White)
+        }
         val textMeasurer = rememberTextMeasurer()
         var diag by remember { mutableStateOf(0) }
         LaunchedEffect(frame) {
             if (diag < 3) {
                 diag++
-                val c0 = session.cellAt(0, 0)
-                android.util.Log.i(
-                    "mterm",
-                    "diag f=$frame c00=${c0?.let { String.format("%08x/%08x %c", it.first, it.second, it.third) }}"
-                )
+                android.util.Log.i("mterm", "diag f=$frame csize=$canvasLog")
             }
         }
         key(frame) {
-            Canvas(Modifier.fillMaxSize()) {
+            Canvas(
+                Modifier
+                    .fillMaxSize()
+                    .onSizeChanged { canvasLog = "${it.width}x${it.height}" }
+            ) {
                 drawRect(color = Color.Red, topLeft = Offset(200f, 300f), size = Size(500f, 300f))
                 drawText(
                     textMeasurer = textMeasurer,
