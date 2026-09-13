@@ -120,6 +120,17 @@ fun TermView(session: TermSession) {
         }
         key(frame) {
             Canvas(Modifier.fillMaxSize()) {
+                drawRect(color = Color.Red, topLeft = Offset(200f, 300f), size = Size(500f, 300f))
+                drawText(
+                    textMeasurer = textMeasurer,
+                    text = "HELLO-TEST",
+                    topLeft = Offset(200f, 650f),
+                    style = TextStyle(
+                        color = Color.White,
+                        fontSize = TextUnit(80f, TextUnitType.Sp),
+                        fontFamily = FontFamily.Monospace,
+                    ),
+                )
                 val cellW = size.width / cols
                 val cellH = size.height / rows
                 // lebar glyph monospace ≈ 0.55×fontSize → isi lebar sel
