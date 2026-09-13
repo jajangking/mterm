@@ -222,6 +222,7 @@ fun TermKeyboard(session: TermSession, cellH: Float, onScroll: () -> Unit) {
                             if (off != scrollOffset) {
                                 scrollOffset = off
                                 session.scrollTo(off)
+                                android.util.Log.i("mterm", "scroll off=$off max=${session.scrollMax()}")
                                 onScroll()
                             }
                         }
