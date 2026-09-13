@@ -808,8 +808,7 @@ pub fn main(args: &[String]) -> io::Result<()> {
         "init" => {
             fs::create_dir_all(&dir)?;
             // Tulis metadata workspace di direktori state agent.
-            let model = std::env::var("MTERM_MODEL")
-                .unwrap_or_else(|_| DEFAULT_MODEL.to_string());
+            let model = std::env::var("MTERM_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
             let meta = json!({
                 "manifest": "mterm-agent v1",
                 "workspace": ws.canonicalize().unwrap_or(ws.clone()).display().to_string(),
@@ -818,10 +817,7 @@ pub fn main(args: &[String]) -> io::Result<()> {
                 "backend": backend_name(),
                 "model": model,
             });
-            fs::write(
-                dir.join("agent.json"),
-                serde_json::to_string_pretty(&meta)?,
-            )?;
+            fs::write(dir.join("agent.json"), serde_json::to_string_pretty(&meta)?)?;
             // Workspace marker: tanda bahwa direktori ini adalah workspace agent-ready.
             let ws_meta = json!({
                 "type": "mterm-workspace",

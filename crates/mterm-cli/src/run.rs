@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use crossterm::cursor::{Hide, MoveTo, Show};
 use crossterm::execute;
-use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType};
 use mterm_core::grid::Color;
 use mterm_core::terminal::{Terminal, TerminalConfig};
 use mterm_pty::Session;

@@ -175,7 +175,14 @@ const fn pe(
 
 /// Paket yang diketahui untuk tiap runtime — selaras `RUNTIMES` di runtime.rs.
 const PKG_TABLE: &[PkgEntry] = &[
-    pe("git", Some("git"), Some("git"), Some("git"), Some("git"), Some("git")),
+    pe(
+        "git",
+        Some("git"),
+        Some("git"),
+        Some("git"),
+        Some("git"),
+        Some("git"),
+    ),
     pe(
         "node",
         Some("nodejs"),
@@ -184,7 +191,14 @@ const PKG_TABLE: &[PkgEntry] = &[
         Some("nodejs"),
         Some("nodejs"),
     ),
-    pe("npm", Some("npm"), Some("npm"), Some("npm"), Some("npm"), Some("npm")),
+    pe(
+        "npm",
+        Some("npm"),
+        Some("npm"),
+        Some("npm"),
+        Some("npm"),
+        Some("npm"),
+    ),
     pe(
         "ripgrep",
         Some("ripgrep"),
@@ -209,7 +223,14 @@ const PKG_TABLE: &[PkgEntry] = &[
         Some("go"),
         Some("golang"),
     ),
-    pe("fzf", Some("fzf"), Some("fzf"), Some("fzf"), Some("fzf"), Some("fzf")),
+    pe(
+        "fzf",
+        Some("fzf"),
+        Some("fzf"),
+        Some("fzf"),
+        Some("fzf"),
+        Some("fzf"),
+    ),
     pe("bun", None, None, Some("bun"), Some("bun"), Some("bun")),
 ];
 
@@ -281,7 +302,7 @@ pub fn distro_info() -> String {
     if let Some(u) = sh_out("uname -srm") {
         parts.push(u);
     }
-if sh_out("getconf GNU_LIBC_VERSION").is_some() {
+    if sh_out("getconf GNU_LIBC_VERSION").is_some() {
         parts.push("glibc".into());
     } else if fs::metadata("/system/bin/linker64").is_ok() {
         parts.push("bionic (Android)".into());
@@ -356,7 +377,9 @@ fn distro_op(args: &[String], op: Op) -> io::Result<()> {
     }
 
     let pkg = pkg_for(manager, name).ok_or_else(|| {
-        io::Error::other(format!("runtime '{name}' tidak punya paket untuk pakman '{manager}'"))
+        io::Error::other(format!(
+            "runtime '{name}' tidak punya paket untuk pakman '{manager}'"
+        ))
     })?;
 
     let raw = match op {
@@ -685,10 +708,22 @@ SHA256: bb000000000000000000000000000000000000000000000000000000000000bb
 
     #[test]
     fn perintah_instal_per_pakman() {
-        assert_eq!(install_cmd("apt", "nodejs").unwrap(), "apt-get install -y nodejs");
-        assert_eq!(install_cmd("dnf", "nodejs").unwrap(), "dnf install -y nodejs");
-        assert_eq!(install_cmd("pacman", "nodejs").unwrap(), "pacman -S --noconfirm nodejs");
-        assert_eq!(install_cmd("apk", "nodejs").unwrap(), "apk add --no-cache nodejs");
+        assert_eq!(
+            install_cmd("apt", "nodejs").unwrap(),
+            "apt-get install -y nodejs"
+        );
+        assert_eq!(
+            install_cmd("dnf", "nodejs").unwrap(),
+            "dnf install -y nodejs"
+        );
+        assert_eq!(
+            install_cmd("pacman", "nodejs").unwrap(),
+            "pacman -S --noconfirm nodejs"
+        );
+        assert_eq!(
+            install_cmd("apk", "nodejs").unwrap(),
+            "apk add --no-cache nodejs"
+        );
         assert_eq!(
             install_cmd("termux", "nodejs").unwrap(),
             "pkg install -y nodejs 2>/dev/null || apt-get install -y nodejs"
@@ -701,6 +736,9 @@ SHA256: bb000000000000000000000000000000000000000000000000000000000000bb
         // is_root() bergantung sistem; cukup pastikan sudo_prefix tidak error.
         let c = sudo_prefix("apt-get install -y x");
         assert!(c.contains("apt-get install -y x"), "mengandung cmd asli");
-        assert!(c.starts_with("sudo ") || !c.starts_with("sudo "), "selalu valid");
+        assert!(
+            c.starts_with("sudo ") || !c.starts_with("sudo "),
+            "selalu valid"
+        );
     }
 }
