@@ -107,6 +107,15 @@ fun TermView(session: TermSession) {
 
     Box(Modifier.fillMaxSize()) {
         val textMeasurer = rememberTextMeasurer()
+        var lastProbe by remember { mutableStateOf(0L) }
+        LaunchedEffect(frame) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastProbe > 2000) {
+                lastProbe = now
+                val g = session.gridText()
+                android.util.Log.i("mterm", "probe f=$frame gLen=${g?.length} c00=${session.cellAt(0, 0)}")
+            }
+        }
         key(frame) {
             Canvas(Modifier.fillMaxSize()) {
                 val cellW = size.width / cols
