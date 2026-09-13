@@ -16,9 +16,9 @@
 Iterasi APK tanpa kabel — pairing sekali per day via Wireless debugging (Android 11+).
 
 - [x] `scripts/adb-wireless.sh`: pair / connect / install / logcat
-- [ ] `.mterm.env` — simpan alamat device + port biar `connect` jadi satu perintah
-- [ ] `scripts/build-android.sh` → build APK → install ke device via adb-wireless
-- [ ] CI build artifact → pull pakai `adb-sync`
+- [x] `.mterm.env` — simpan alamat device + port biar `connect` jadi satu perintah (save/show; connect/pair auto-baca; lokasi repo root, gitignore)
+- [x] `scripts/build-android.sh` → build APK → install ke device via adb-wireless (modes: local / `--ci` dispatch / `--pull` artifact CI / `--install`; install ALWAYS hash-verify)
+- [x] CI build artifact → pull pakai `adb-sync` (= `build-android.sh --pull`)
 
 ## Fase 1 — Rust Core (terminal engine)
 **Tujuan**: Terminal emulator yang benar — VT parsing, cell buffer, ANSI rendering.
