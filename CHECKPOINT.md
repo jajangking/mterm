@@ -231,3 +231,11 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
   ngikut `crates/core/src/mouse.rs` (`BTN_LEFT=0`, `MOTION=32`), gating `sgr_mouse`
   di engine. **Verifikasi device pending** (device offline saat commit); compile
   via CI — commit tunggal `MainActivity.kt`.
+## 2026-09-13 — Fase 0, 3, 4, 8 TUNTAS (WORKMAP 0 unchecked / 64 checkbox)
+- Fase 3: SGR mouse verified di device (test-hook --es xtermtest mouse1006 via write()).
+  Blocker lama = artifact test-harness (ESC wajib lewat stdout path), bukan bug produk.
+- Fase 4: foreground service (dataSync, notif mterm_session), auto-save onStop +
+  auto-restore cold-launch via files/.sessions (TermStore proses-global).
+- Fase 8: theme system/light/dark, localization skeleton id+en, onboarding,
+  docs GitHub Pages (jajangking.github.io/mterm), release signing CN=mterm
+  (GitHub Secrets + apksigner verified), fdroid/metadata draft.
