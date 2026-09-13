@@ -74,17 +74,17 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
 ## Fase 3 — Android Chrome (Compose)
 **Tujuan**: GUI yang tipis tapi fungsional — tab, sidebar, command palette.
 
-- [ ] Gradle project skeleton (AGP 8.x, Kotlin 2.x)
+- [x] Gradle project skeleton (AGP 8.x, Kotlin 2.x)
 - [x] Compose theme (dark terminal, accent color configurable)
-- [ ] Terminal view: Rust core render → `SurfaceView` / `TextureView`
+- [x] Terminal view: Rust core render → `SurfaceView` / `TextureView`
 - [x] Tab management: add/remove/switch (session = PTY + Rust core)
 - [x] Sidebar drawer: git status, project files (read-only preview)
-- [ ] Keyboard handling: IME, Ctrl/Alt/Meta shortcuts, Escape passthrough
-- [ ] Scroll/selection: touch handling → mouse events ke Rust core
+- [x] Keyboard handling: IME, Ctrl/Alt/Meta shortcuts, Escape passthrough
+- [x] Scroll/selection: touch handling → mouse events ke Rust core
   - [x] Rust side: viewport scrollback (`set_scroll_offset`/`scrollback_len`/
         `view_line` di core + `nativeScrollOffset`/`nativeScrollMax`/JNI cell_at
         hormati viewport) + mouse→SGR (`nativeSgrMouse`; 4 test core + 3 JNI)
-  - [ ] Chrome side: gesture → `scrollTo` + `sgrMouse` → `input` (butuh CI)
+  - [x] Chrome side: gesture → `scrollTo` + `sgrMouse` → `input` (verified: drag jari → \e[<32;x;yM)}
 - [x] Settings page: font, theme, profile selection
 
 ## Fase 4 — Session Persistence + Process Management
