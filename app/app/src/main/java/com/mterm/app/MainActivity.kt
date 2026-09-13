@@ -211,13 +211,11 @@ fun TermKeyboard(
             .fillMaxSize()
             .pointerInput(session, mouseMode) {
                 fun showKeyboard() {
-                    val v = edit
-                    if (v != null && !v.hasFocus()) {
-                        v.requestFocus()
-                        val ime =
-                            v.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                        ime.showSoftInput(v, InputMethodManager.SHOW_IMPLICIT)
-                    }
+                    val v = edit ?: return
+                    if (!v.hasFocus()) v.requestFocus()
+                    val ime =
+                        v.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                    ime.showSoftInput(v, InputMethodManager.SHOW_IMPLICIT)
                 }
 
                 // kood SGR (sinkron dgn crates/core/src/mouse.rs): BTN_LEFT=0, MOTION=32.
