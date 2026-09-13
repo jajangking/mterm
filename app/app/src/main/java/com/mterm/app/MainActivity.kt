@@ -42,6 +42,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -91,6 +92,7 @@ class MainActivity : ComponentActivity() {
             var sideOpen by remember { mutableStateOf(false) }
             var tick by remember { mutableStateOf(0) }
             val ctx = LocalContext.current
+            val testHook = intent.getStringExtra("xtermtest")
 
             val activeTab = tabs.firstOrNull { it.id == activeId }
 
@@ -100,6 +102,20 @@ class MainActivity : ComponentActivity() {
                     val t = TabState(1)
                     tabs += t
                     activeId = t.id
+                }
+                // Test hook (dev): --es xtermtest mouse1006 → kirim ESC[?1006h
+                // langsung ke session (bypass shell, karena adb input text
+                // tidak bisa mengetik byte ESC 0x1b).
+                if (testHook == "mouse1006") {
+                    val bytes = "\u001b[?1006h".toByteArray()
+                    for (i in 1..10) {
+                        val t = tabs.firstOrNull { it.id == activeId } ?: break
+                        if (t.session.input(bytes)) {
+                            android.util.Log.i("mterm", "test-hook: ESC[?1006h terkirim ke PTY")
+                            break
+                        }
+                        kotlinx.coroutines.delay(500)
+                    }
                 }
             }
 
