@@ -98,12 +98,15 @@ fun TermView(session: TermSession) {
         val timer = kotlin.concurrent.timer(period = 100) {
             val d = session.dirty()
             if (d) frame++
-            while (true) {
-                when (val ev = session.takeEvent() ?: break) {
-                    is TermEvent.Mouse -> mouseMode = ev.enabled
-                    else -> {}
-                }
-            }
+while (true) {
+                            when (val ev = session.takeEvent() ?: break) {
+                                is TermEvent.Mouse -> {
+                                    android.util.Log.i("mterm", "ev=$ev")
+                                    mouseMode = ev.enabled
+                                }
+                                else -> {}
+                            }
+                        }
             val now = android.os.SystemClock.elapsedRealtime()
             if (now - lastTick > 2000) {
                 lastTick = now
