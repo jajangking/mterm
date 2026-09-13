@@ -103,6 +103,13 @@ pub struct Terminal {
     pub pending_chunk: Option<crate::kitty::PendingChunk>,
     #[serde(skip)]
     pending_apc: Option<Vec<u8>>,
+    /// Parser ESC/CSI/OSC persisten: feed yang terpecah antar-call harus
+    /// melanjutkan state (mis. ESC lalu `[?1000h` di call berbeda).
+    #[serde(skip, default)]
+    parser: vte::Parser,
+    /// Fast-path aman hanya jika parser di ground (track via hook Perform).
+    #[serde(skip, default)]
+    parser_in_ground: bool,
 }
 
 impl Terminal {
@@ -140,6 +147,8 @@ impl Terminal {
             next_image: 0,
             pending_chunk: None,
             pending_apc: None,
+            parser: vte::Parser::default(),
+            parser_in_ground: true,
         }
     }
 
@@ -336,7 +345,7 @@ impl Terminal {
                 self.pending_apc = Some(bytes.to_vec());
                 return;
             }
-            if Self::fast_byte(bytes[0]) {
+            if Self::fast_byte(bytes[0]) && self.parser_in_ground {
                 let mut n = 1;
                 while n < bytes.len() && Self::fast_byte(bytes[n]) {
                     n += 1;
@@ -344,8 +353,10 @@ impl Terminal {
                 self.put_fast(&bytes[..n]);
                 bytes = &bytes[n..];
             } else {
-                let mut parser = vte::Parser::new();
+                self.parser_in_ground = false;
+                let mut parser = std::mem::take(&mut self.parser);
                 parser.advance(self, bytes);
+                self.parser = parser;
                 return;
             }
         }
@@ -630,11 +641,13 @@ fn format_tag(f: KittyFormat) -> u8 {
 
 impl Perform for Terminal {
     fn print(&mut self, ch: char) {
+        self.parser_in_ground = true;
         self.put_char(ch);
         self.mark_dirty(self.cursor.x, self.cursor.y);
     }
 
     fn execute(&mut self, byte: u8) {
+        self.parser_in_ground = true;
         match byte {
             b'\x07' => self.events.push_back(TerminalEvent::Bell),
             b'\r' => self.cursor.x = 0,
@@ -655,6 +668,7 @@ impl Perform for Terminal {
     }
 
     fn csi_dispatch(&mut self, params: &Params, inter: &[u8], ignore: bool, c: char) {
+        self.parser_in_ground = true;
         // private mode (`CSI ? ...`) dilayani; intermediate lain diabaikan
         if ignore || (!inter.is_empty() && inter != b"?") {
             return;
@@ -771,6 +785,7 @@ impl Perform for Terminal {
     }
 
     fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool) {
+        self.parser_in_ground = true;
         let _ = bell_terminated;
         if params.is_empty() {
             return;
@@ -807,7 +822,9 @@ impl Perform for Terminal {
         let _ = c;
     }
 
-    fn unhook(&mut self) {}
+    fn unhook(&mut self) {
+        self.parser_in_ground = true;
+    }
     fn put(&mut self, _byte: u8) {}
 }
 

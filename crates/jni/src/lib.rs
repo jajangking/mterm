@@ -875,6 +875,22 @@ mod tests {
     }
 
     #[test]
+    fn take_event_mouse_split_feed() {
+        // Meniru jalur perangkat: tiap byte di-feed terpisah oleh nativeWrite.
+        let h = init_term(80, 24);
+        feed(h, b"\x1b");
+        for b in b"[?1000h" {
+            feed(h, &[*b]);
+        }
+        let mut buf = [0u8; 64];
+        let n = take_event(h, &mut buf);
+        assert_eq!(n, 9, "event harus keluar walau feed terpecah-pecah");
+        assert_eq!(u32_le(&buf[0..4]), 3, "type Mouse");
+        assert_eq!(buf[8], 1, "tracking menyala");
+        destroy(h);
+    }
+
+    #[test]
     fn take_event_mouse() {
         let h = init_term(80, 24);
         feed(h, b"\x1b[?1000h");
