@@ -75,7 +75,7 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
 **Tujuan**: GUI yang tipis tapi fungsional — tab, sidebar, command palette.
 
 - [ ] Gradle project skeleton (AGP 8.x, Kotlin 2.x)
-- [ ] Compose theme (dark terminal, accent color configurable)
+- [x] Compose theme (dark terminal, accent color configurable)
 - [ ] Terminal view: Rust core render → `SurfaceView` / `TextureView`
 - [ ] Tab management: add/remove/switch (session = PTY + Rust core)
 - [ ] Sidebar drawer: git status, project files (read-only preview)
@@ -85,7 +85,7 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
         `view_line` di core + `nativeScrollOffset`/`nativeScrollMax`/JNI cell_at
         hormati viewport) + mouse→SGR (`nativeSgrMouse`; 4 test core + 3 JNI)
   - [ ] Chrome side: gesture → `scrollTo` + `sgrMouse` → `input` (butuh CI)
-- [ ] Settings page: font, theme, profile selection
+- [x] Settings page: font, theme, profile selection
 
 ## Fase 4 — Session Persistence + Process Management
 **Tujuan**: Proses nggak mati ditiban Android; session bisa resume.
