@@ -99,10 +99,22 @@ fun TermView(session: TermSession) {
     }
 
     DisposableEffect(session) {
+        var lastTick = 0L
         val timer = kotlin.concurrent.timer(period = 100) {
-            if (session.dirty()) frame++
+            val d = session.dirty()
+            if (d) frame++
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastTick > 2000) {
+                lastTick = now
+                android.util.Log.i("mterm", "tick d=$d f=$frame")
+            }
         }
         onDispose { timer.cancel() }
+    }
+
+    LaunchedEffect(Unit) {
+        android.os.SystemClock.sleep(3000)
+        frame++ // force satu recompose penuh utk uji glyph vs dirty
     }
 
     Box(Modifier.fillMaxSize()) {
