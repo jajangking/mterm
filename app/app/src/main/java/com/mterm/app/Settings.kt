@@ -177,7 +177,7 @@ fun SettingsPanel(
                                     onChange(settings.copy(accent = rgb))
                                 },
                             contentAlignment = Alignment.Center,
-                        )
+                        ) {}
                     }
                 }
 
