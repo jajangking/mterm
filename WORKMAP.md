@@ -160,9 +160,9 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
 
 ## Fase 8 — Polish + Release
 - [ ] APK signing + Play Store / F-Droid metadata
-- [ ] Onboarding flow
-- [ ] Dark/light theme
-- [ ] Localization skeleton
+- [x] Onboarding flow (overlay welcome 3 fitur + tombol Mulai, first-launch, SharedPreferences onb_done) — verified device 2026-09-13;
+- [x] Dark/light theme (Settings: Ikuti sistem / Terang / Gelap; isSystemInDarkTheme + SharedPreferences theme) — verified device 2026-09-13;
+- [x] Localization skeleton (values/strings.xml id default + values-en/ + stringResource, res.getText; onboarding+settings+notif+sidemenu dilokalisasi) — build sukses;
 - [ ] Documentation site
 
 ---
