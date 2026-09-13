@@ -107,6 +107,17 @@ fun TermView(session: TermSession) {
 
     Box(Modifier.fillMaxSize()) {
         val textMeasurer = rememberTextMeasurer()
+        var diag by remember { mutableStateOf(0) }
+        LaunchedEffect(frame) {
+            if (diag < 3) {
+                diag++
+                val c0 = session.cellAt(0, 0)
+                android.util.Log.i(
+                    "mterm",
+                    "diag f=$frame c00=${c0?.let { String.format("%08x/%08x %c", it.first, it.second, it.third) }}"
+                )
+            }
+        }
         key(frame) {
             Canvas(Modifier.fillMaxSize()) {
                 val cellW = size.width / cols
@@ -114,31 +125,34 @@ fun TermView(session: TermSession) {
                 // lebar glyph monospace ≈ 0.55×fontSize → isi lebar sel
                 val fontSize = cellW * 1.7f
                 val glyphH = fontSize * 1.25f
-                for (y in 0 until rows) {
-                    val top = y * cellH
-                    val glyphTop = top + (cellH - glyphH) / 2f
-                    for (x in 0 until cols) {
-                        val cell = session.cellAt(x, y) ?: continue
-                        if (cell.second == 0) continue
-                        drawRect(
-                            color = Color(cell.second),
-                            topLeft = Offset(x * cellW, top),
-                            size = Size(cellW, cellH + 1f),
-                        )
-                        val ch = cell.third
-                        if (ch != ' ' && ch != '\u0000') {
-                            drawText(
-                                textMeasurer = textMeasurer,
-                                text = ch.toString(),
-                                topLeft = Offset(x * cellW, glyphTop),
-                                style = TextStyle(
-                                    color = Color(cell.first),
-                                    fontSize = TextUnit(fontSize, TextUnitType.Sp),
-                                    fontFamily = FontFamily.Monospace,
-                                ),
+                try {
+                    for (y in 0 until rows) {
+                        val top = y * cellH
+                        val glyphTop = top + (cellH - glyphH) / 2f
+                        for (x in 0 until cols) {
+                            val cell = session.cellAt(x, y) ?: continue
+                            drawRect(
+                                color = Color(cell.second),
+                                topLeft = Offset(x * cellW, top),
+                                size = Size(cellW, cellH + 1f),
                             )
+                            val ch = cell.third
+                            if (ch != ' ' && ch != '\u0000') {
+                                drawText(
+                                    textMeasurer = textMeasurer,
+                                    text = ch.toString(),
+                                    topLeft = Offset(x * cellW, glyphTop),
+                                    style = TextStyle(
+                                        color = Color(cell.first),
+                                        fontSize = TextUnit(fontSize, TextUnitType.Sp),
+                                        fontFamily = FontFamily.Monospace,
+                                    ),
+                                )
+                            }
                         }
                     }
+                } catch (t: Throwable) {
+                    android.util.Log.e("mterm", "draw error: ${t}")
                 }
             }
         }
