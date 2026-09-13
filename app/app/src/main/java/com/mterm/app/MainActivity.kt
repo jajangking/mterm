@@ -37,6 +37,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -65,10 +67,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            val cols = 80
-            val rows = 24
-            val session = rememberTermSession(cols, rows)
-
             val settingsState = rememberSettings()
             val s = settingsState.value
             val dark = s.dark
@@ -87,15 +85,58 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // Warna default sel terminal ikut tema; bump tick biar sel re-render.
+            val tabs = remember { mutableStateListOf<TabState>() }
+            var activeId by remember { mutableStateOf(0) }
+            var settingsOpen by remember { mutableStateOf(false) }
+            var sideOpen by remember { mutableStateOf(false) }
             var tick by remember { mutableStateOf(0) }
-            LaunchedEffect(dark) {
-                session.defaultBg = if (dark) 0xFF1B1B1F.toInt() else 0xFFFFFFFF.toInt()
-                session.defaultFg = if (dark) 0xFFE0E0E0.toInt() else 0xFF101014.toInt()
+            val ctx = LocalContext.current
+
+            val activeTab = tabs.firstOrNull { it.id == activeId }
+
+            // Selalu ada >= 1 tab.
+            LaunchedEffect(Unit) {
+                if (tabs.isEmpty()) {
+                    val t = TabState(1)
+                    tabs += t
+                    activeId = t.id
+                }
+            }
+
+            // Warna default sel terminal ikut tema; bump tick biar sel re-render.
+            LaunchedEffect(dark, tabs) {
+                val bg = if (dark) 0xFF1B1B1F.toInt() else 0xFFFFFFFF.toInt()
+                val fg = if (dark) 0xFFE0E0E0.toInt() else 0xFF101014.toInt()
+                tabs.forEach {
+                    it.session.defaultBg = bg
+                    it.session.defaultFg = fg
+                }
                 tick++
             }
 
-            var settingsOpen by remember { mutableStateOf(false) }
+            fun addTab() {
+                val id = (tabs.maxOfOrNull { it.id } ?: 0) + 1
+                val t = TabState(id)
+                t.session.defaultBg = if (dark) 0xFF1B1B1F.toInt() else 0xFFFFFFFF.toInt()
+                t.session.defaultFg = if (dark) 0xFFE0E0E0.toInt() else 0xFF101014.toInt()
+                tabs += t
+                activeId = t.id
+            }
+
+            fun closeTab(t: TabState) {
+                if (tabs.size <= 1) return
+                tabs.remove(t)
+                NativeTerm.nativeDestroy(t.handle)
+                if (activeId == t.id) {
+                    activeId = tabs.lastOrNull()?.id ?: 0
+                }
+            }
+
+            DisposableEffect(Unit) {
+                onDispose {
+                    tabs.forEach { NativeTerm.nativeDestroy(it.handle) }
+                }
+            }
 
             MaterialTheme(colorScheme = scheme) {
                 Surface(
@@ -109,12 +150,31 @@ class MainActivity : ComponentActivity() {
                             .navigationBarsPadding()
                             .imePadding()
                     ) {
-                        TermView(
-                            session = session,
-                            fontSp = s.fontSp,
-                            hint = s.accent,
-                            tick = tick,
-                        )
+                        Column(Modifier.fillMaxSize()) {
+                            TabBar(
+                                tabs = tabs,
+                                activeId = activeId,
+                                accent = s.accent,
+                                dark = dark,
+                                onSelect = { activeId = it },
+                                onAdd = { addTab() },
+                                onClose = { closeTab(it) },
+                                onSidebar = { sideOpen = true },
+                            )
+                            Box(Modifier.fillMaxSize()) {
+                                if (activeTab != null) {
+                                    key(activeTab.handle) {
+                                        TermView(
+                                            session = activeTab.session,
+                                            fontSp = s.fontSp,
+                                            hint = s.accent,
+                                            tick = tick,
+                                            onTitle = { activeTab.updateTitle(it) },
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         Text(
                             "⚙",
                             color = Color(s.accent),
@@ -129,6 +189,15 @@ class MainActivity : ComponentActivity() {
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                                 .clickable { settingsOpen = true }
                         )
+                        if (sideOpen && activeTab != null) {
+                            SidebarDrawer(
+                                cwd = ctx.filesDir.path,
+                                accent = s.accent,
+                                dark = dark,
+                                fontSp = s.fontSp,
+                                onClose = { sideOpen = false },
+                            )
+                        }
                         if (settingsOpen) {
                             SettingsPanel(
                                 settings = s,
@@ -141,18 +210,6 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
-    @Composable
-    fun rememberTermSession(startCols: Int, startRows: Int): TermSession {
-        val handle = remember { NativeTerm.nativeInit(startCols, startRows) }
-        val session = remember { TermSession(handle) }
-        DisposableEffect(Unit) {
-            onDispose {
-                NativeTerm.nativeDestroy(handle)
-            }
-        }
-        return session
-    }
 }
 
 @Composable
@@ -161,6 +218,7 @@ fun TermView(
     fontSp: Float = 13f,
     hint: Int = 0xFF00E5A0.toInt(),
     tick: Int = 0,
+    onTitle: (String) -> Unit = {},
 ) {
     var frame by remember { mutableStateOf(0) }
 
@@ -187,7 +245,10 @@ fun TermView(
                             android.util.Log.i("mterm", "drain ev=$ev")
                             mouseMode = ev.enabled
                         }
-                        is TermEvent.Title -> android.util.Log.i("mterm", "drain ev=$ev")
+                        is TermEvent.Title -> {
+                            android.util.Log.i("mterm", "drain ev=$ev")
+                            onTitle(ev.value)
+                        }
                         TermEvent.Bell -> android.util.Log.i("mterm", "drain ev=Bell")
                     }
                 }
