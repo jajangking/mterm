@@ -10,10 +10,12 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -24,24 +26,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.TextUnitType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 
 class MainActivity : ComponentActivity() {
@@ -112,67 +111,33 @@ fun TermView(session: TermSession) {
         onDispose { timer.cancel() }
     }
 
-    LaunchedEffect(Unit) {
-        android.os.SystemClock.sleep(3000)
-        frame++ // force satu recompose penuh utk uji glyph vs dirty
-    }
-
-    Box(Modifier.fillMaxSize()) {
-        val textMeasurer = rememberTextMeasurer()
-        var lastDrawLog by remember { mutableStateOf(0L) }
-        var lastProbe by remember { mutableStateOf(0L) }
-        LaunchedEffect(frame) {
-            val now = android.os.SystemClock.elapsedRealtime()
-            if (now - lastProbe > 2000) {
-                lastProbe = now
-                val g = session.gridText()
-                android.util.Log.i("mterm", "probe f=$frame gLen=${g?.length} c00=${session.cellAt(0, 0)}")
-            }
-        }
-        key(frame) {
-            Canvas(Modifier.fillMaxSize()) {
-                val csize = this.size
-                if (System.currentTimeMillis() - lastDrawLog > 2000) {
-                    lastDrawLog = System.currentTimeMillis()
-                    android.util.Log.i("mterm", "draw size=$csize")
-                }
-                drawRect(color = Color.Red, topLeft = Offset.Zero, size = csize)
-                drawText(
-                    textMeasurer = textMeasurer,
-                    text = "A",
-                    topLeft = Offset(4f, 4f),
-                    style = TextStyle(color = Color.White),
-                )
-                val cellW = size.width / cols
-                val cellH = size.height / rows
-                // lebar glyph monospace ≈ 0.55×fontSize → isi lebar sel
-                val fontSize = cellW * 1.7f
-                val glyphH = fontSize * 1.25f
-                for (y in 0 until rows) {
-                    val top = y * cellH
-                    val glyphTop = top + (cellH - glyphH) / 2f
-                    for (x in 0 until cols) {
-                        val cell = session.cellAt(x, y) ?: continue
-                        drawRect(
-                            color = Color(cell.second),
-                            topLeft = Offset(x * cellW, top),
-                            size = Size(cellW, cellH + 1f),
-                        )
-                        val ch = cell.third
-                        if (ch != ' ' && ch != '\u0000') {
-                            drawText(
-                                textMeasurer = textMeasurer,
-                                text = ch.toString(),
-                                topLeft = Offset(x * cellW, glyphTop),
-                                style = TextStyle(
-                                    color = Color(cell.first),
-                                    fontSize = TextUnit(fontSize, TextUnitType.Sp),
-                                    fontFamily = FontFamily.Monospace,
-                                ),
-                            )
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val cellW = maxWidth / cols
+        val cellH = maxHeight / rows
+        val fs = (cellW.value / 0.55f).sp
+        Column(Modifier.fillMaxSize()) {
+            for (row in 0 until rows) {
+                val line = remember(row, frame) {
+                    buildAnnotatedString {
+                        for (x in 0 until cols) {
+                            val c = session.cellAt(x, row) ?: continue
+                            val ch = c.third
+                            if (ch == '\u0000' || ch == ' ') continue
+                            withStyle(SpanStyle(color = Color(c.first))) { append(ch.toString()) }
                         }
                     }
                 }
+                Text(
+                    line,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(cellH),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = fs,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                )
             }
         }
         Text(
