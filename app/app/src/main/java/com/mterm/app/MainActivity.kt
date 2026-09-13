@@ -104,8 +104,12 @@ fun TermView(session: TermSession) {
             if (session.dirty()) frame++
             while (true) {
                 when (val ev = session.takeEvent() ?: break) {
-                    is TermEvent.Mouse -> mouseMode = ev.enabled
-                    else -> {}
+                    is TermEvent.Mouse -> {
+                        android.util.Log.i("mterm", "drain ev=$ev")
+                        mouseMode = ev.enabled
+                    }
+                    is TermEvent.Title -> android.util.Log.i("mterm", "drain ev=$ev")
+                    TermEvent.Bell -> android.util.Log.i("mterm", "drain ev=Bell")
                 }
             }
         }
@@ -219,16 +223,19 @@ fun TermKeyboard(
 
                 // kode SGR (sinkron dgn crates/core/src/mouse.rs): BTN_LEFT=0, MOTION=32.
                 fun sendMouse(code: Int, release: Boolean, x: Int, y: Int) {
+                    android.util.Log.i("mterm", "sendMouse mode=$mouseMode code=$code r=$release x=$x y=$y")
                     if (!mouseMode) return
                     val bytes = session.sgrMouse(code, 0, release, x, y)
                     if (bytes.isNotEmpty()) session.input(bytes)
                 }
 
+                android.util.Log.i("mterm", "ptr-block start mode=$mouseMode")
                 if (mouseMode) {
                     // TUI menyalakan SGR mouse: tap = klik (press + release), drag =
                     // press di titik awal → motion (bit 32) → release di titik akhir.
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
+                        android.util.Log.i("mterm", "gest-down x=${down.position.x} y=${down.position.y}")
                         val x0 = (down.position.x / cellW).toInt() + 1
                         val y0 = (down.position.y / cellH).toInt() + 1
                         sendMouse(BTN_LEFT, false, x0, y0)
@@ -259,7 +266,7 @@ fun TermKeyboard(
                     var totalDy = 0f
                     var startOff = 0
                     detectDragGestures(
-                        onDragStart = { totalDy = 0f; startOff = scrollOffset },
+                        onDragStart = { android.util.Log.i("mterm", "drag-start"); totalDy = 0f; startOff = scrollOffset },
                         onDrag = { change, dragAmount ->
                             change.consume()
                             totalDy += dragAmount.y
