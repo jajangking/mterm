@@ -123,8 +123,14 @@ fun TermView(session: TermSession) {
                         for (x in 0 until cols) {
                             val c = session.cellAt(x, row) ?: continue
                             val ch = c.third
-                            if (ch == '\u0000' || ch == ' ') continue
-                            withStyle(SpanStyle(color = Color(c.first))) { append(ch.toString()) }
+                            withStyle(
+                                SpanStyle(
+                                    color = Color(c.first),
+                                    background = Color(c.second),
+                                )
+                            ) {
+                                append(if (ch == '\u0000') ' ' else ch.toString())
+                            }
                         }
                     }
                 }
