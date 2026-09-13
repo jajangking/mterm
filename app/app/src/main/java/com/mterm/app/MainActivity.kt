@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -22,9 +23,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -60,11 +63,20 @@ class MainActivity : ComponentActivity() {
             val cols = 80
             val rows = 24
             val session = rememberTermSession(cols, rows)
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
+            val dark = darkColorScheme(
+                background = Color(0xFF0B0B0D),
+                surface = Color(0xFF0B0B0D),
+                onBackground = Color(0xFFE0E0E0),
+            )
+            MaterialTheme(colorScheme = dark) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = Color(0xFF0B0B0D),
+                ) {
                     Box(
                         Modifier
                             .fillMaxSize()
+                            .statusBarsPadding()
                             .navigationBarsPadding()
                             .imePadding()
                     ) {
@@ -219,21 +231,19 @@ fun TermKeyboard(
     var scrollOffset by remember { mutableStateOf(0) }
     val vc = LocalViewConfiguration.current
     val slopPx = vc.touchSlop
+    fun showKeyboard() {
+        val v = edit ?: return
+        if (!v.hasFocus()) v.requestFocus()
+        val ime =
+            v.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        ime.showSoftInput(v, InputMethodManager.SHOW_IMPLICIT)
+    }
     Box(
         Modifier
             .fillMaxSize()
             .pointerInput(session, mouseMode, cellW, cellH, slopPx) {
-                fun showKeyboard() {
-                    val v = edit ?: return
-                    if (!v.hasFocus()) v.requestFocus()
-                    val ime =
-                        v.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                    ime.showSoftInput(v, InputMethodManager.SHOW_IMPLICIT)
-                }
-
                 // kode SGR (sinkron dgn crates/core/src/mouse.rs): BTN_LEFT=0, MOTION=32.
                 fun sendMouse(code: Int, release: Boolean, x: Int, y: Int) {
-                    android.util.Log.i("mterm", "sendMouse mode=$mouseMode code=$code r=$release x=$x y=$y")
                     if (!mouseMode) return
                     val bytes = session.sgrMouse(code, 0, release, x, y)
                     if (bytes.isNotEmpty()) session.input(bytes)
@@ -245,7 +255,6 @@ fun TermKeyboard(
                     // press di titik awal → motion (bit 32) → release di titik akhir.
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
-                        android.util.Log.i("mterm", "gest-down x=${down.position.x} y=${down.position.y}")
                         val x0 = (down.position.x / cellW).toInt() + 1
                         val y0 = (down.position.y / cellH).toInt() + 1
                         sendMouse(BTN_LEFT, false, x0, y0)
@@ -276,7 +285,7 @@ fun TermKeyboard(
                     var totalDy = 0f
                     var startOff = 0
                     detectDragGestures(
-                        onDragStart = { android.util.Log.i("mterm", "drag-start"); totalDy = 0f; startOff = scrollOffset },
+                        onDragStart = { totalDy = 0f; startOff = scrollOffset },
                         onDrag = { change, dragAmount ->
                             change.consume()
                             totalDy += dragAmount.y
@@ -298,6 +307,14 @@ fun TermKeyboard(
                             if (kotlin.math.abs(totalDy) <= slopPx) showKeyboard()
                         },
                     )
+                }
+            }
+            .pointerInput(mouseMode) {
+                // Detektor tap terpisah (mode non-mouse): gestur ringan yang
+                // nggak sampai ambang drag → keyboard terbuka reliably, tanpa
+                // bergantung ke onDragEnd.
+                if (!mouseMode) {
+                    detectTapGestures(onTap = { showKeyboard() })
                 }
             }
     ) {
