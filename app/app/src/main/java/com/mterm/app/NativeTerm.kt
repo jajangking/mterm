@@ -15,6 +15,7 @@ object NativeTerm {
 
     external fun nativeCellAt(handle: Long, x: Int, y: Int, out: ByteArray): Boolean
     external fun nativeDirty(handle: Long): Boolean
+    external fun nativeMouseEnabled(handle: Long): Boolean
     external fun nativeTakeEvent(handle: Long, out: ByteArray): Int
     external fun nativeGridText(handle: Long): String
 
@@ -200,6 +201,9 @@ class TermSession(private val handle: Long) {
     }
 
     fun dirty(): Boolean = NativeTerm.nativeDirty(handle)
+
+    /** Truth mode mouse (SGR atau tracking lama) langsung dari engine. */
+    fun mouseEnabled(): Boolean = NativeTerm.nativeMouseEnabled(handle)
 
     private fun readLE(b: ByteArray, off: Int): Int {
         return (b[off].toInt() and 0xFF) or

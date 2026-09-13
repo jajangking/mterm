@@ -202,6 +202,18 @@ fn dirty(handle: u64) -> bool {
     t.dirty_rect.take().is_some()
 }
 
+/// `mouse_enabled(handle) -> bool` — truth mode mouse (SGR atau tracking lama)
+/// langsung dari engine; independen dari antrian event.
+fn mouse_enabled(handle: u64) -> bool {
+    let Some(shared) = get(handle) else {
+        return false;
+    };
+    let Ok(t) = shared.lock() else {
+        return false;
+    };
+    t.mouse_enabled()
+}
+
 /// `take_event(handle, out) -> n` — pop event terminal (polling).
 ///
 /// Layout keluar: `[type:u32 LE][len:u32 LE][payload...]`.
@@ -523,6 +535,23 @@ pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeDirty(
 ) -> jboolean {
     guard(JNI_FALSE, || {
         if dirty(handle as u64) {
+            JNI_TRUE
+        } else {
+            JNI_FALSE
+        }
+    })
+}
+
+/// `nativeMouseEnabled(handle): Boolean` — truth mode mouse dari engine.
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "system" fn Java_com_mterm_app_NativeTerm_nativeMouseEnabled(
+    _env: JNIEnv,
+    _this: JObject,
+    handle: jlong,
+) -> jboolean {
+    guard(JNI_FALSE, || {
+        if mouse_enabled(handle as u64) {
             JNI_TRUE
         } else {
             JNI_FALSE

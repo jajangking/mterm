@@ -101,16 +101,26 @@ fun TermView(session: TermSession) {
 
     DisposableEffect(session) {
         val timer = kotlin.concurrent.timer(period = 100) {
-            if (session.dirty()) frame++
-            while (true) {
-                when (val ev = session.takeEvent() ?: break) {
-                    is TermEvent.Mouse -> {
-                        android.util.Log.i("mterm", "drain ev=$ev")
-                        mouseMode = ev.enabled
-                    }
-                    is TermEvent.Title -> android.util.Log.i("mterm", "drain ev=$ev")
-                    TermEvent.Bell -> android.util.Log.i("mterm", "drain ev=Bell")
+            try {
+                val eng = session.mouseEnabled()
+                if (eng != mouseMode) {
+                    android.util.Log.i("mterm", "poll mouse=$eng (was $mouseMode)")
+                    mouseMode = eng
                 }
+                if (session.dirty()) frame++
+                while (true) {
+                    val ev = session.takeEvent() ?: break
+                    when (ev) {
+                        is TermEvent.Mouse -> {
+                            android.util.Log.i("mterm", "drain ev=$ev")
+                            mouseMode = ev.enabled
+                        }
+                        is TermEvent.Title -> android.util.Log.i("mterm", "drain ev=$ev")
+                        TermEvent.Bell -> android.util.Log.i("mterm", "drain ev=Bell")
+                    }
+                }
+            } catch (e: Throwable) {
+                android.util.Log.e("mterm", "drain crash", e)
             }
         }
         onDispose { timer.cancel() }
