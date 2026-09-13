@@ -1,0 +1,42 @@
+# metadata F-Droid (fdroiddata format) — draft untuk publikasi.
+# Build APP memerlukan Rust Android target + cargo-ndk (script BUILD di bawah).
+Categories:
+  - System
+License: MIT
+WebSite: https://jajangking.github.io/mterm/
+SourceCode: https://github.com/jajangking/mterm
+IssueTracker: https://github.com/jajangking/mterm/issues
+Changelog: https://github.com/jajangking/mterm/blob/main/CHECKPOINT.md
+
+AutoName: mterm
+Summary: Terminal lokal untuk Android (Rust core + PTY)
+Description: |
+  Emulator terminal yang berjalan sepenuhnya lokal: PTY shell + engine grid
+  ditulis dalam Rust (crates/jni, crates/core), UI Compose. Mendukung tab,
+  sidebar (git status + file browser), mode mouse SGR untuk TUI, foreground
+  service, dan auto-save/restore sesi.
+
+RepoType: git
+Repo: https://github.com/jajangking/mterm
+
+Builds:
+  - versionName: 0.1.0
+    versionCode: 1
+    commit: main
+    subdir: app
+    sudo:
+      - apt-get update
+      - apt-get install -y curl
+    build:
+      - cd ../ && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -sSf -o rustup-init.sh
+      - cd ../ && sh ./rustup-init.sh -y --profile minimal --target aarch64-linux-android
+      - cd ../ && export PATH="$HOME/.cargo/bin:$PATH"
+      - cd ../ && cargo install cargo-ndk --locked
+      - cd ../ && cargo ndk -t arm64-v8a -o app/app/src/main/jniLibs build -p mterm-jni --release
+    gradle:
+      - assembleRelease
+
+AutoUpdateMode: None
+UpdateCheckMode: None
+CurrentVersion: 0.1.0
+CurrentVersionCode: 1

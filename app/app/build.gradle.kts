@@ -4,6 +4,15 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Signing release (Fase 8): keystore TIDAK di-commit. Sumber:
+// 1. Env CI (decoded dari secret ANDROID_KEYSTORE_B64) — dipakai Actions.
+// 2. File lokal keystore/mterm-release.jks yang di-ignore git — dipakai dev.
+import java.util.Base64
+
+val ksB64 = System.getenv("ANDROID_KEYSTORE_B64")
+val localKs = rootProject.file("keystore/mterm-release.jks")
+val haveKs = ksB64 != null || localKs.exists()
+
 android {
     namespace = "com.mterm.app"
     compileSdk = 35
@@ -17,6 +26,26 @@ android {
 
         ndk {
             abiFilters += listOf("arm64-v8a")
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            if (haveKs) {
+                signingConfig = signingConfigs.create("release") {
+                    if (ksB64 != null) {
+                        val keystoreFile = layout.buildDirectory.file("release.jks").get().asFile
+                        keystoreFile.writeBytes(Base64.getDecoder().decode(ksB64))
+                        storeFile = keystoreFile
+                    } else {
+                        storeFile = localKs
+                    }
+                    storePassword = System.getenv("ANDROID_KEYSTORE_PASS") ?: "mterm-release-2026"
+                    keyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: "mterm"
+                    keyPassword = System.getenv("ANDROID_KEY_PASS") ?: "mterm-release-2026"
+                }
+            }
         }
     }
 

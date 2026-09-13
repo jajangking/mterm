@@ -56,6 +56,16 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
           exit ${PIPESTATUS[0]}
+      - name: Build signed release APK
+        working-directory: app
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASS: ${{ secrets.ANDROID_KEY_PASS }}
+        run: |
+          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee build-release.log
+          exit ${PIPESTATUS[0]}
       - name: Publish failure log for diagnosis
         if: failure()
         working-directory: app
@@ -65,11 +75,18 @@ jobs:
           git switch -c ci-logs 2>/dev/null || git switch ci-logs
           mkdir -p .ci-logs
           ts=$(date +%s)
-          cp build.log ".ci-logs/$ts.log" 2>/dev/null || true
-          git add ".ci-logs/$ts.log" 2>/dev/null || true
+          for lf in build.log build-release.log; do
+            [ -f "$lf" ] && cp "$lf" ".ci-logs/${ts}-${lf}" 2>/dev/null || true
+          done
+          git add ".ci-logs/" 2>/dev/null || true
           git commit -m "ci logs $ts" || true
           git push --force --set-upstream origin ci-logs || true
       - uses: actions/upload-artifact@v4
         with:
           name: mterm-debug-apk
           path: app/app/build/outputs/apk/debug/*.apk
+      - uses: actions/upload-artifact@v4
+        if: ${{ secrets.ANDROID_KEYSTORE_B64 != '' }}
+        with:
+          name: mterm-release-apk
+          path: app/app/build/outputs/apk/release/*.apk

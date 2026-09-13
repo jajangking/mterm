@@ -22,3 +22,5 @@ app/**/build/
 
 # OS
 .DS_Store
+# local release keystore (jangan di-commit)
+/keystore/
