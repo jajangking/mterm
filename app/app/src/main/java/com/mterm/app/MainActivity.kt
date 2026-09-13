@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -82,21 +83,13 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun TermView(session: TermSession) {
-    val cols = 80
-    val rows = 24
     var frame by remember { mutableStateOf(0) }
 
     // start_shell: PTY emulator dijalankan (sh), output → session
     val ctx = LocalContext.current
-    LaunchedEffect(session) {
-        session.startSession(
-            "/system/bin/sh",
-            null,
-            ctx.filesDir.path,
-            cols,
-            rows,
-        )
-    }
+    var started by remember { mutableStateOf(false) }
+    var cols by remember { mutableStateOf(80) }
+    var rows by remember { mutableStateOf(24) }
 
     DisposableEffect(session) {
         var lastTick = 0L
@@ -106,19 +99,52 @@ fun TermView(session: TermSession) {
             val now = android.os.SystemClock.elapsedRealtime()
             if (now - lastTick > 2000) {
                 lastTick = now
-                android.util.Log.i("mterm", "tick d=$d f=$frame")
+                android.util.Log.i("mterm", "tick d=$d f=$frame cols=$cols rows=$rows")
             }
         }
         onDispose { timer.cancel() }
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val cellW = maxWidth / cols
-        val cellH = maxHeight / rows
-        val fs = (cellW.value / 0.62f).sp
+        // Ukuran dialog dari constrain layar: font tetap → turunkan cols/rows.
+        val density = LocalDensity.current
+        val font = 13.sp
+        val lh = font * 1.2f
+        val cellW = with(density) { font.toPx() * 0.62f }
+        val cellH = with(density) { lh.toPx() }
+        val wPx = with(density) { maxWidth.toPx() }
+        val hPx = with(density) { maxHeight.toPx() }
+        val dCols = (wPx / cellW).toInt().coerceIn(2, 512)
+        val dRows = (hPx / cellH).toInt().coerceIn(2, 512)
+        val rowH = with(density) { cellH.toDp() }
+
+        LaunchedEffect(started) {
+            if (!started) {
+                cols = dCols
+                rows = dRows
+                session.startSession(
+                    "/system/bin/sh",
+                    null,
+                    ctx.filesDir.path,
+                    dCols,
+                    dRows,
+                )
+                started = true
+            }
+        }
+
+        LaunchedEffect(dCols, dRows) {
+            if (started && (dCols != cols || dRows != rows)) {
+                if (session.sessionResize(dCols, dRows)) {
+                    cols = dCols
+                    rows = dRows
+                }
+            }
+        }
+
         Column(Modifier.fillMaxSize()) {
             for (row in 0 until rows) {
-                val line = remember(row, frame) {
+                val line = remember(row, frame, cols) {
                     buildAnnotatedString {
                         for (x in 0 until cols) {
                             val c = session.cellAt(x, row) ?: continue
@@ -139,9 +165,10 @@ fun TermView(session: TermSession) {
                     line,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(cellH),
+                        .height(rowH),
                     fontFamily = FontFamily.Monospace,
-                    fontSize = fs,
+                    fontSize = font,
+                    lineHeight = lh,
                     maxLines = 1,
                     softWrap = false,
                     overflow = TextOverflow.Clip,
