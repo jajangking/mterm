@@ -196,6 +196,7 @@ fun TermKeyboard(session: TermSession, cellH: Float, onScroll: () -> Unit) {
         Modifier
             .fillMaxSize()
             .pointerInput(session) {
+                val slopPx = vc.touchSlop.toPx()
                 var totalDy = 0f
                 var startOff = 0
                 fun showKeyboard() {
@@ -215,7 +216,7 @@ fun TermKeyboard(session: TermSession, cellH: Float, onScroll: () -> Unit) {
                     onDrag = { change, dragAmount ->
                         change.consume()
                         totalDy += dragAmount.y
-                        if (kotlin.math.abs(totalDy) > vc.touchSlop.toPx()) {
+                        if (kotlin.math.abs(totalDy) > slopPx) {
                             val off = (startOff - (totalDy / cellH).toInt())
                                 .coerceIn(0, session.scrollMax())
                             if (off != scrollOffset) {
@@ -226,10 +227,10 @@ fun TermKeyboard(session: TermSession, cellH: Float, onScroll: () -> Unit) {
                         }
                     },
                     onDragEnd = {
-                        if (kotlin.math.abs(totalDy) <= vc.touchSlop.toPx()) showKeyboard()
+                        if (kotlin.math.abs(totalDy) <= slopPx) showKeyboard()
                     },
                     onDragCancel = {
-                        if (kotlin.math.abs(totalDy) <= vc.touchSlop.toPx()) showKeyboard()
+                        if (kotlin.math.abs(totalDy) <= slopPx) showKeyboard()
                     },
                 )
             }
