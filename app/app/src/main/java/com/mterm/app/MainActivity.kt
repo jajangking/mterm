@@ -10,7 +10,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -34,8 +34,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -61,7 +63,6 @@ class MainActivity : ComponentActivity() {
                             .imePadding()
                     ) {
                         TermView(session)
-                        TermKeyboard(session)
                     }
                 }
             }
@@ -182,23 +183,55 @@ fun TermView(session: TermSession) {
                 .align(Alignment.BottomEnd)
                 .padding(8.dp)
         )
+        TermKeyboard(session, cellH, onScroll = { frame++ })
     }
 }
 
 @Composable
-fun TermKeyboard(session: TermSession) {
+fun TermKeyboard(session: TermSession, cellH: Float, onScroll: () -> Unit) {
     var edit by remember { mutableStateOf<EditText?>(null) }
+    var scrollOffset by remember { mutableStateOf(0) }
+    val vc = LocalViewConfiguration.current
     Box(
         Modifier
             .fillMaxSize()
-            .clickable {
-                val v = edit
-                if (v != null && !v.hasFocus()) {
-                    v.requestFocus()
-                    val ime =
-                        v.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                    ime.showSoftInput(v, InputMethodManager.SHOW_IMPLICIT)
+            .pointerInput(session) {
+                var totalDy = 0f
+                var startOff = 0
+                fun showKeyboard() {
+                    val v = edit
+                    if (v != null && !v.hasFocus()) {
+                        v.requestFocus()
+                        val ime =
+                            v.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                        ime.showSoftInput(v, InputMethodManager.SHOW_IMPLICIT)
+                    }
                 }
+                detectDragGestures(
+                    onDragStart = {
+                        totalDy = 0f
+                        startOff = scrollOffset
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        totalDy += dragAmount.y
+                        if (kotlin.math.abs(totalDy) > vc.touchSlop.toPx()) {
+                            val off = (startOff - (totalDy / cellH).toInt())
+                                .coerceIn(0, session.scrollMax())
+                            if (off != scrollOffset) {
+                                scrollOffset = off
+                                session.scrollTo(off)
+                                onScroll()
+                            }
+                        }
+                    },
+                    onDragEnd = {
+                        if (kotlin.math.abs(totalDy) <= vc.touchSlop.toPx()) showKeyboard()
+                    },
+                    onDragCancel = {
+                        if (kotlin.math.abs(totalDy) <= vc.touchSlop.toPx()) showKeyboard()
+                    },
+                )
             }
     ) {
         AndroidView(
@@ -218,27 +251,27 @@ fun TermKeyboard(session: TermSession) {
                         override fun afterTextChanged(s: Editable?) {
                             if (suppress || s == null) return
                             val cur = s.toString()
-                            when {
-                                cur.length > prev.length -> {
-                                    val added = cur.substring(prev.length)
-                                    val bytes = added.replace("\n", "\r").toByteArray(Charsets.UTF_8)
-                                    session.input(bytes)
-                                    if (added.contains("\n")) {
-                                        suppress = true
-                                        setText("")
-                                        suppress = false
-                                        prev = ""
-                                    } else {
-                                        prev = cur
-                                    }
+                            if (cur == prev) return
+                            // Diff prefix-retype: cari common prefix, hapus sisanya,
+                            // ketik ulang bagian baru. Aman untuk autocorrect/IME
+                            // yang mengganti teks di tengah (bukan cuma ekor).
+                            var p = 0
+                            while (p < prev.length && p < cur.length && prev[p] == cur[p]) p++
+                            val del = prev.length - p
+                            val ins = cur.substring(p)
+                            repeat(del) { session.input(byteArrayOf(0x7f.toByte())) }
+                            if (ins.isNotEmpty()) {
+                                val hasNl = ins.indexOf('\n') >= 0
+                                session.input(ins.replace("\n", "\r").toByteArray(Charsets.UTF_8))
+                                if (hasNl) {
+                                    suppress = true
+                                    setText("")
+                                    suppress = false
+                                    prev = ""
+                                    return
                                 }
-                                cur.length < prev.length -> {
-                                    val n = prev.length - cur.length
-                                    repeat(n) { session.input(byteArrayOf(0x7f.toByte())) }
-                                    prev = cur
-                                }
-                                else -> prev = cur
                             }
+                            prev = cur
                         }
                     })
                     setOnKeyListener { _, keyCode, event ->
