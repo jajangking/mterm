@@ -32,6 +32,7 @@ object NotificationHelper {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         return Notification.Builder(ctx, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notif)
             .setContentTitle("mterm")
             .setContentText("Sesi terminal aktif")
             .setOngoing(true)
