@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mterm — terminal Android lokal</title>
+<style>
+:root {
+    --bg:#0d0d12; --panel:#17171e; --fg:#d9d9e3; --dim:#8a8aa0;
+    --acc:#00e5a0; --ok:#00e5a0; --warn:#ffb300; --notif:#ff5470;
+    --line:#2a2a38;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    line-height:1.65; font-size:15px;
+  }
+  .wrap { max-width:820px; margin:0 auto; padding:28px 18px 80px; }
+  header { border-bottom:1px solid var(--line); padding-bottom:18px; margin-bottom:26px; }
+  .logo { font-size:22px; font-weight:700; color:var(--acc); }
+  .logo .cursor { display:inline-block; background:var(--acc); color:#08130f; padding:0 5px; margin-left:4px; }
+  .tag { color:var(--dim); margin-top:6px; }
+  h1 { font-size:19px; color:#fff; }
+  h2 { font-size:15px; color:var(--acc); margin-top:34px; border-bottom:1px dashed var(--line); padding-bottom:6px; }
+  a { color:var(--acc); }
+  code { background:var(--panel); border:1px solid var(--line); padding:1px 5px; border-radius:4px; }
+  pre { background:var(--panel); border:1px solid var(--line); padding:12px 14px; border-radius:8px; overflow-x:auto; }
+  pre code { background:none; border:none; padding:0; }
+  .chk { list-style:none; padding:0; margin:0; }
+  .chk li { padding:3px 0; }
+  .chk li::before { content:"✓ "; color:var(--ok); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; }
+  .card b { color:#fff; display:block; margin-bottom:4px; }
+  footer { margin-top:48px; border-top:1px solid var(--line); padding-top:14px; color:var(--dim); font-size:13px; }
+  .pill { display:inline-block; border:1px solid var(--acc); color:var(--acc); border-radius:99px; padding:0 9px; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">mterm<span class="cursor">&gt;_</span></div>
+    <div class="tag">Terminal lokal untuk Android — core Rust + PTY, UI Compose. Open source.</div>
+  </header>
+
+  <h1>Apa itu mterm?</h1>
+  <p>Emulator terminal yang berjalan <b>lokal di perangkat Android</b>: seluruh pipeline
+  disusun dari <code>libc crate</code> (Rust) untuk PTY/shell, engine terminal
+  (grid, scrollback, escape-sequence, SGR mouse), dan JNI bridge. Tidak ada server
+  eksternal — tiap baris yang muncul adalah kerja Rust core di device.</p>
+
+  <h2>Fitur</h2>
+  <ul class="chk">
+    <li>Beberapa tab terminal, masing-masing sesi PTY + shell tersendiri</li>
+    <li>Sidebar: cwd, status git, penjelajah file dengan preview read-only</li>
+    <li>Scrollback, seleksi, mode mouse SGR untuk TUI (vim/tuistyle apps)</li>
+    <li>Foreground service + notifikasi persistent; otomatis save/restore sesi</li>
+    <li>Theme: ikuti sistem / terang / gelap + warna aksen + ukuran font</li>
+    <li>Onboarding first-launch</li>
+    <li>Localization skeleton (id + en), dark/light mengikuti preferensi</li>
+  </ul>
+
+  <h2>Teknologi &amp; struktur</h2>
+  <pre><code>mterm/
+├─ crates/
+│  ├─ jni/        # JNI bridge (export Java_*), spawn PTY thread
+│  ├─ core/       # engine terminal: grid, scrollback, SGR mouse, save-state
+│  └─ mterm-cli/  # tooling host (node install, dll.)
+├─ app/
+│  └─ app/        # Android app (Kotlin + Compose) — MainActivity, tabs, sidebar,
+│                 # settings, onboarding, foreground service (TermService)
+└─ scripts/       # adb-wireless, build-android (--ci / --pull / --install)
+</code></pre>
+  <p>Kompilasi: Rust <code>cargo</code> → <code>cargo ndk</code> → shared lib
+  <code>arm64-v8a</code> di <code>jniLibs</code> → Gradle <code>assembleDebug</code>.
+  CI (GitHub Actions) menjalankan <code>fmt</code>, <code>clippy -D warnings</code>,
+  <code>cargo test</code> (114 test hijau), lalu build APK.</p>
+
+  <h2>Build &amp; instal lokal</h2>
+  <pre><code># build + instal lewat CI artifact ke device (lewat ADB wireless)
+./scripts/build-android.sh --pull
+
+# pasang APK yang sudah di-pull
+./scripts/build-android.sh --install app/app/build/outputs/apk/debug/app-debug.apk
+
+# koneksi ADB wireless (isi port baru dari HP bila kadaluarsa)
+./scripts/adb-wireless.sh connect   # atau: save/pair/show
+</code></pre>
+
+  <h2>Arsitektur inti</h2>
+  <p>Terminal dibangun dengan model <b>reader/engine + aplikasi TUI</b>:</p>
+  <pre><code>shell (PTY master) ──bytes──▶ Rust feed ──▶ engine ──▶ grid + events
+           ▲                                                    │
+           └──────── Kotlin input()/write() ◀─ chrome gestures ◀─┘</code></pre>
+  <ul>
+    <li>Feed dari <b>stdout PTY</b> masuk ke engine — aplikasi TUI yang menulis
+        <code>ESC[?1006h</code> akan otomatis mengaktifkan mode mouse SGR.</li>
+    <li>Event ke keyboard: <code>session.input()</code> menulis ke PTY stdin (shell);
+        <code>session.write()</code> mengirim langsung ke engine (alur aplikasi TUI).</li>
+    <li>State terminal bisa diseriakan ke JSON (<code>to_json/from_json</code>) untuk
+        auto-save/restore dan parsing test.</li>
+  </ul>
+
+  <h2>Status roadmap</h2>
+  <div class="grid">
+    <div class="card"><b>Fase 0</b>Infra CI + tooling android<span class="pill">selesai</span></div>
+    <div class="card"><b>Fase 3</b>Tema, tab, sidebar, SGR mouse<span class="pill">selesai</span></div>
+    <div class="card"><b>Fase 4</b>Service + persistensi sesi<span class="pill">selesai</span></div>
+    <div class="card"><b>Fase 8</b>Onboarding, theme, l10n<span class="pill">terus berjalan</span></div>
+  </div>
+  <p>Detail: <a href="https://github.com/jajangking/mterm/blob/main/WORKMAP.md">WORKMAP.md</a>
+  · <a href="https://github.com/jajangking/mterm/blob/main/CHECKPOINT.md">CHECKPOINT.md</a>.</p>
+
+  <footer>
+    mterm — dikerjakan progresif: satu fase, satu verifikasi device, satu komit.
+    <span class="pill">main</span>
+  </footer>
+</div>
+</body>
+</html>
