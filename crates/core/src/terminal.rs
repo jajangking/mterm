@@ -1156,7 +1156,11 @@ mod tests {
 
         // 1006h duplikat → tak emit event ganda
         feed(&mut t, "\x1b[?1006h");
-        assert_eq!(t.take_event(), None, "duplikat 1006h tidak boleh event baru");
+        assert_eq!(
+            t.take_event(),
+            None,
+            "duplikat 1006h tidak boleh event baru"
+        );
 
         // 1006 off → Mouse(false)
         feed(&mut t, "\x1b[?1006l");
