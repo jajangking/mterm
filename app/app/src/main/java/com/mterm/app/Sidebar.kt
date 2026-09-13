@@ -175,7 +175,7 @@ fun SidebarDrawer(
                     Text(
                         previewText!!,
                         fontFamily = FontFamily.Monospace,
-                        fontSize = fontSp,
+                        fontSize = fontSp.sp,
                         lineHeight = (fontSp * 1.25f).sp,
                         color = if (dark) Color(0xFFD6D6D6) else Color(0xFF222222),
                         modifier = Modifier.fillMaxSize(),
