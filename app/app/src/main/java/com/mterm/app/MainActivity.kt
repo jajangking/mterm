@@ -110,7 +110,21 @@ while (true) {
             val now = android.os.SystemClock.elapsedRealtime()
             if (now - lastTick > 2000) {
                 lastTick = now
-                android.util.Log.i("mterm", "tick d=$d f=$frame cols=$cols rows=$rows mouse=$mouseMode")
+                var evs = mutableListOf<Int>()
+                while (true) {
+                    val ev = session.takeEvent() ?: break
+                    evs += when (ev) {
+                        is TermEvent.Mouse -> if (ev.enabled) 1 else 0
+                        is TermEvent.Title -> 4
+                        TermEvent.Bell -> 2
+                    }
+                    if (ev is TermEvent.Mouse) {
+                        android.util.Log.i("mterm", "ev=$ev")
+                        mouseMode = ev.enabled
+                    }
+                }
+                val sgr = session.sgrMouse(0, 0, false, 30, 10).size
+                android.util.Log.i("mterm", "tick d=$d f=$frame cols=$cols rows=$rows mouse=$mouseMode evs=$evs sgr=$sgr")
             }
         }
         onDispose { timer.cancel() }
