@@ -130,60 +130,15 @@ fun TermView(session: TermSession) {
             }
         }
         key(frame) {
-            Canvas(
+            Box(
                 Modifier
                     .fillMaxSize()
-                    .onSizeChanged { canvasLog = "${it.width}x${it.height}" }
+                    .background(Color.Yellow)
             ) {
-                val t0 = android.os.SystemClock.elapsedRealtime()
-                drawRect(color = Color.Red, topLeft = Offset(200f, 300f), size = Size(500f, 300f))
-                drawText(
-                    textMeasurer = textMeasurer,
-                    text = "HELLO-TEST",
-                    topLeft = Offset(200f, 650f),
-                    style = TextStyle(
-                        color = Color.White,
-                        fontSize = TextUnit(80f, TextUnitType.Sp),
-                        fontFamily = FontFamily.Monospace,
-                    ),
-                )
-                val cellW = size.width / cols
-                val cellH = size.height / rows
-                // lebar glyph monospace ≈ 0.55×fontSize → isi lebar sel
-                val fontSize = cellW * 1.7f
-                val glyphH = fontSize * 1.25f
-                try {
-                    for (y in 0 until rows) {
-                        val top = y * cellH
-                        val glyphTop = top + (cellH - glyphH) / 2f
-                        for (x in 0 until cols) {
-                            val cell = session.cellAt(x, y) ?: continue
-                            drawRect(
-                                color = Color(cell.second),
-                                topLeft = Offset(x * cellW, top),
-                                size = Size(cellW, cellH + 1f),
-                            )
-                            val ch = cell.third
-                            if (ch != ' ' && ch != '\u0000') {
-                                drawText(
-                                    textMeasurer = textMeasurer,
-                                    text = ch.toString(),
-                                    topLeft = Offset(x * cellW, glyphTop),
-                                    style = TextStyle(
-                                        color = Color(cell.first),
-                                        fontSize = TextUnit(fontSize, TextUnitType.Sp),
-                                        fontFamily = FontFamily.Monospace,
-                                    ),
-                                )
-                            }
-                        }
-                    }
-                } catch (t: Throwable) {
-                    android.util.Log.e("mterm", "draw error: ${t}")
-                }
-                android.util.Log.i("mterm", "draw done ms=${android.os.SystemClock.elapsedRealtime() - t0}")
+                Text("MTERM-PROBE ${canvasLog}", color = Color.Red, modifier = Modifier.align(Alignment.TopCenter))
             }
         }
+        Text(
         Text(
             "ketuk layar untuk keyboard",
             color = Color.Gray,
