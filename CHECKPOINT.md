@@ -3,6 +3,76 @@
 > **Baca ini dulu kalau sesi terputus**. Semua state penting dan cara lanjut
 > dicatat di sini agar bisa di-resume tanpa menebak-nebak.
 
+## 🔄 PIVOT — jadi aplikasi Linux native (2026-09-13)
+
+**Keputusan**: mterm tidak lagi dikembangkan sebagai terminal Android. Fokus
+pindah ke **Linux native** — `crates/core` + `crates/pty` + `mterm-cli` = produk
+utama (CLI Linux, glibc native). Android (`app/`, `crates/jni`, fdroid, CI
+android) jadi **legacy** — tetap di repo, TIDAK dihapus, tidak jadi fokus.
+
+**Alasan** (dari user di sesi ini): frustrasi karena app Android "tidak bisa
+install apa-apa". Fakta yang ditemukan waktu audit:
+- ekosistem `mterm pkg` kosong — mirror `loc` hanya berisi paket dummy `app` 144 B;
+  `mterm pkg search node` = tidak ditemukan.
+- bionic ≠ glibc — tool Linux biner tidak jalan tanpa patchelf/proot (user tolak
+  proot, pilih "distro Linux umum" di mana glibc native).
+
+**Temuan audit penting** (sudah dibaca kodenya):
+- `mterm tool install node` SUDAH ADA (`tool.rs`) — unduh .deb aarch64 repo
+  Termux resmi, verifikasi SHA256 dari `Packages.gz`, ekstrak `data.tar.xz` ke
+  `~/.mterm/cache`, symlink `cache/bin`, pin via `--version`/`MTERM_NODE_VERSION`.
+  **Tapi bionic-only** (hardcode `REPO=packages.termux.dev`, `ARCH=aarch64`).
+- `mterm run` punya mode interaktif (`run.rs`) tapi hardcode 80x24 + redraw
+  penuh tiap loop (`MoveTo(0,0)` + `Clear(All)` + rewrite semua sel).
+- `mterm agent` SUDAH lengkap: `RestBackend` (Groq/OpenAI-compatible, SSE via
+  curl), model default `openai/gpt-oss-120b` (`MTERM_MODEL`), key
+  `GROQ_API_KEY`/`~/.groq_key`, fallback `StubBackend`; sesi per-workspace
+  `~/.mterm/agent/<slug>/`; `agent ask` bundle `last_stderr.txt` (exit code +
+  tail output) jadi system msg.
+- Network di device: `curl https://packages.termux.dev` → 200 OK.
+- User PERNAH abort unduh .deb node manual (2026-09-13 sesi ini) → pakai jalur
+  resmi `mterm tool`, jangan download manual lagi.
+- Biner release = `target/release/mterm` (bukan `mterm-cli`).
+
+**Rencana 4 milestone** (detail di WORKMAP Fase 9):
+- **M1**: `mterm tool install/remove/upgrade` via apt/dnf/apk/pacman (auto-detect,
+  Termux fallback ke deb-bionic) + `--dry-run`; `doctor` + baris OS/distro/libc.
+- **M2**: `mterm run` interaktif penuh — SIGWINCH, render diff, resize PTY.
+- **M3**: `mterm agent init` + polish agent-ready.
+- **M4**: CI `ubuntu-latest` (test/clippy + tarball biner + install script), docs.
+
+**Status**: M1 **TUNTAS**. Yang sudah jalan (di Termux, teruji):
+- `detect_pkg_manager()` → `termux` (via bionic linker64 / os-release / `pkg`)
+- `distro_info()` → `"Linux 6.12... aarch64 · bionic (Android) · pkg:termux"`
+- `tool install <name> --dry-run`: node → deb-path bionic; lainnya → `pkg install`
+- `tool remove/upgrade <name> --dry-run` → `pkg remove/upgrade`
+- `doctor`: baris os/pakman di atas daftar runtime; hint → `mterm tool install ...`
+- 3 test baru (`pkg_for_selaras_pakman`, `perintah_instal_per_pakman`,
+  `sudo_hanya_kalau_root`); total 117 test, 0 clippy.
+
+Sisa M1 jika sesi lanjut:
+- (opsional) `doctor` tampilkan nama binary yang dipakai per tool (saat ini cuma versi)
+
+**Lanjut → M2** (`mterm run` interaktif penuh — SIGWINCH, render diff, resize PTY).
+
+### Status M2 — TUNTAS (2026-09-13)
+- `run.rs` ditulis ulang Linux-first: `tty_size()` via `ioctl(TIOCGWINSZ)`
+  (stdin lalu stdout, fallback 80x24), dipoll tiap loop → deteksi resize host →
+  `Session::resize` + `Terminal::resize` + `redraw_all`.
+- Render diff: `redraw_diff()` memakai `Terminal::dirty_rect.take()` — hanya
+  baris yang dirty ditulis ulang (`MoveTo` + `\x1b[2K` + row), bukan clear+redraw
+  semua 24 baris tiap 60ms. `redraw_all` hanya saat start/resize.
+- Cursor disembunyikan saat render (`Hide`), di-show di akhir (`?25h`) → tidak
+  berkedip.
+- Verifikasi via `script -qec` di Termux: pipeline `echo INTERAKTIF_OK` +
+  `exit` → full-redraw awal, lalu diff: row prompt `$` → ketik → row `exit`,
+  sampai `?25h`. Mode pipe (`mterm run echo x`) tetap normal.
+- 8 suite test ok, 0 clippy.
+
+### Status M3 — belum mulai: `mterm agent init` (scaffold workspace agent-ready)
+
+---
+
 ## Status terbaru (update tiap sesi berakhir)
 
 | Baris | Status |
@@ -38,12 +108,13 @@
 
 ```sh
 cd ~/mterm
-git status                       # kerjaan terbaru: renderer Android (lihat Riwayat)
+git status                       # kerjaan terbaru: PIVOT Linux (Fase 9) — lihat bagian PIVOT di atas
 cargo test --workspace 2>&1 | grep "test result"   # 113 passed (core 48 + jni 21 + pty 8 + cli 34 + e2e 2)
 cargo clippy --workspace --all-targets 2>&1 | tail -1   # 0 warning
+./target/release/mterm tool status                     # cek jalur tool (cache node)
 curl -s "https://api.github.com/repos/jajangking/mterm/actions/runs?per_page=1" \
   | grep -E '"head_sha"|"status"|"conclusion"'
-./scripts/adb-wireless.sh status                       # (opsional) cek device
+./scripts/adb-wireless.sh status                       # (opsional) Android — legacy
 ```
 
 Tiap baris selesai di **WORKMAP.md**: centang `[x]` + tulis apa yang terbukti
@@ -80,17 +151,21 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
 
 ## Next todo yang disarankan
 
-1. **Fase 3 (Android Chrome) — sisa**: (a) **mouse/tap** → `sgrMouse` → `input`
-   (cegah kalau `TermEvent.Mouse(enabled)` false; sekarang tap = show keyboard);
-   (b) durasi: hapus `yes` flood — tidak relevan. Ukuran dinamis ✅, IME diff ✅,
-   scroll ✅ done.
-2. **Fase 4 lifecycle (CI)**: auto-save term ke file app-private via
-   `saveState`/`loadState` saat background/foreground; `TermService`
-   foreground service + notification persistent.
-3. **Fase 6 (agent): ganti `StubBackend`** dengan backend HTTP nyata (Bun/Node
-   standalone dulu; Groq HTTP di-skip untuk sekarang).
-4. Bersihkan: hapus step `Publish failure log for diagnosis` dari ci.yml + branch
-   `ci-logs` kalau sudah tidak dibutuhkan; kembalikan repo ke private.
+**AKTIF — Fase 9 (PIVOT Linux) Milestone 1:**
+1. `tool.rs`: `distro_info()` + `detect_pkg_manager()` (apt/dnf/apk/pacman/termux)
+2. rewrite `cmd_install` → deteksi distro, map nama→paket, non-root auto `sudo`,
+   `--dry-run`; Termux → jalur deb-bionic yang sudah ada
+3. tambah `cmd_remove` & `cmd_upgrade`
+4. `main.rs` usage + `doctor.rs` baris OS/distro/libc/manager
+5. verif: `mterm tool install node --dry-run` di Termux (harus deteksi `termux`)
+6. `cargo test -p mterm-cli` + `cargo clippy --workspace --all-targets`
+7. Update CHECKPOINT status M1 tuntas → lanjut M2
+
+**Sesudah M1:**
+- M2: `mterm run` SIGWINCH + render diff + resize PTY
+- M3: `mterm agent init`
+- M4: CI job Linux (ubuntu-latest) + tarball biner + install script
+- (opsional, bila mau) bersihkan CI: hapus step `Publish failure log`.
 
 ## Riwayat sesi
 

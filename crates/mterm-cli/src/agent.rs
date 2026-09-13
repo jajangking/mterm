@@ -805,6 +805,42 @@ pub fn main(args: &[String]) -> io::Result<()> {
             println!("backend: {}", backend_name());
             Ok(())
         }
+        "init" => {
+            fs::create_dir_all(&dir)?;
+            // Tulis metadata workspace di direktori state agent.
+            let model = std::env::var("MTERM_MODEL")
+                .unwrap_or_else(|_| DEFAULT_MODEL.to_string());
+            let meta = json!({
+                "manifest": "mterm-agent v1",
+                "workspace": ws.canonicalize().unwrap_or(ws.clone()).display().to_string(),
+                "agent_dir": dir.display().to_string(),
+                "created": crate::pkg::chrono_now(),
+                "backend": backend_name(),
+                "model": model,
+            });
+            fs::write(
+                dir.join("agent.json"),
+                serde_json::to_string_pretty(&meta)?,
+            )?;
+            // Workspace marker: tanda bahwa direktori ini adalah workspace agent-ready.
+            let ws_meta = json!({
+                "type": "mterm-workspace",
+                "agent_state": dir.display().to_string(),
+            });
+            let marker = ws.join(".mterm-agent.json");
+            fs::write(&marker, serde_json::to_string_pretty(&ws_meta)?)?;
+
+            println!("workspace agent-ready:");
+            println!("  root   : {}", ws.display());
+            println!("  state  : {}", dir.display());
+            println!("  backend: {}", backend_name());
+            println!("  model  : {model}");
+            println!();
+            println!("langkah selanjutnya:");
+            println!("  mterm agent start   — jalankan server agent (Unix socket)");
+            println!("  mterm agent ask \"...\" — tanya ke agent");
+            Ok(())
+        }
         "ask" => {
             let mut render = false;
             let mut q: Option<String> = None;

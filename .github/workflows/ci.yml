@@ -20,6 +20,21 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --workspace
 
+      # M4: biner Linux + tarball untuk distro glibc (ubuntu-latest).
+      - name: Build release binary (Linux)
+        run: cargo build --release -p mterm-cli
+      - name: Package tarball
+        run: |
+          mkdir -p dist/bin
+          cp target/release/mterm dist/bin/mterm
+          cp scripts/install.sh dist/install.sh
+          printf 'mterm biner Linux x86_64 (glibc). Pakai: ./install.sh\n' > dist/README.txt
+          tar -czf mterm-linux-x86_64.tar.gz -C dist .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mterm-linux-x86_64
+          path: mterm-linux-x86_64.tar.gz
+
   android:
     runs-on: ubuntu-latest
     steps:

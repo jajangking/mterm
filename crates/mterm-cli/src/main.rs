@@ -46,9 +46,10 @@ fn print_usage() {
 
 usage:
   mterm run [args...]        jalankan command di PTY + engine
-  mterm doctor               cek ketersediaan tool (git, node, dll)
+  mterm doctor               cek sistem (distro/libc) + tool tersedia
   mterm profile list|use|show|verify
-  mterm tool status|install <name> [--version vX]   node android-arm64 + cache
+  mterm tool status|install|remove|upgrade <name> [--dry-run] [--version vX]
+                              install via pakman distro (apt/dnf/apk/pacman)
   mterm pkg  keygen|make-repo|mirrors|update|list|search|info|install|remove|verify
   mterm agent start|stop|restart|list|status|ask|reset|history|stderr [clear]
 ",

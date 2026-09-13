@@ -350,7 +350,7 @@ pub fn repo_sign(repo_dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn chrono_now() -> String {
+pub(crate) fn chrono_now() -> String {
     std::process::Command::new("date")
         .args(["+%Y-%m-%dT%H:%M:%SZ"])
         .output()

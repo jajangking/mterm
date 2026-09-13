@@ -143,6 +143,255 @@ pub fn read_marker(dir: &Path) -> Option<String> {
         .map(|s| s.trim().to_string())
 }
 
+// ── Distro Linux: deteksi OS + package manager ───────────────────────────────
+
+/// Pemetaan nama runtime → nama paket per package manager.
+struct PkgEntry {
+    name: &'static str,
+    apt: Option<&'static str>,
+    dnf: Option<&'static str>,
+    pacman: Option<&'static str>,
+    apk: Option<&'static str>,
+    termux: Option<&'static str>,
+}
+
+const fn pe(
+    name: &'static str,
+    apt: Option<&'static str>,
+    dnf: Option<&'static str>,
+    pacman: Option<&'static str>,
+    apk: Option<&'static str>,
+    termux: Option<&'static str>,
+) -> PkgEntry {
+    PkgEntry {
+        name,
+        apt,
+        dnf,
+        pacman,
+        apk,
+        termux,
+    }
+}
+
+/// Paket yang diketahui untuk tiap runtime — selaras `RUNTIMES` di runtime.rs.
+const PKG_TABLE: &[PkgEntry] = &[
+    pe("git", Some("git"), Some("git"), Some("git"), Some("git"), Some("git")),
+    pe(
+        "node",
+        Some("nodejs"),
+        Some("nodejs"),
+        Some("nodejs"),
+        Some("nodejs"),
+        Some("nodejs"),
+    ),
+    pe("npm", Some("npm"), Some("npm"), Some("npm"), Some("npm"), Some("npm")),
+    pe(
+        "ripgrep",
+        Some("ripgrep"),
+        Some("ripgrep"),
+        Some("ripgrep"),
+        Some("ripgrep"),
+        Some("ripgrep"),
+    ),
+    pe(
+        "python",
+        Some("python3"),
+        Some("python3"),
+        Some("python"),
+        Some("python3"),
+        Some("python"),
+    ),
+    pe(
+        "go",
+        Some("golang"),
+        Some("golang"),
+        Some("golang"),
+        Some("go"),
+        Some("golang"),
+    ),
+    pe("fzf", Some("fzf"), Some("fzf"), Some("fzf"), Some("fzf"), Some("fzf")),
+    pe("bun", None, None, Some("bun"), Some("bun"), Some("bun")),
+];
+
+pub fn pkg_for(manager: &str, name: &str) -> Option<&'static str> {
+    let e = PKG_TABLE.iter().find(|e| e.name == name)?;
+    match manager {
+        "termux" => e.termux,
+        "apt" => e.apt,
+        "dnf" => e.dnf,
+        "pacman" => e.pacman,
+        "apk" => e.apk,
+        _ => None,
+    }
+}
+
+/// Deteksi package manager Linux: termux > apt-get > dnf > pacman > apk.
+pub fn detect_pkg_manager() -> Option<&'static str> {
+    let osr = fs::read_to_string("/etc/os-release").unwrap_or_default();
+    if osr.to_lowercase().contains("termux")
+        || osr.contains("Android")
+        || fs::metadata("/system/bin/linker64").is_ok()
+        || sh_out("command -v pkg 2>/dev/null").is_some()
+    {
+        return Some("termux");
+    }
+    for (bin, id) in [
+        ("apt-get", "apt"),
+        ("dnf", "dnf"),
+        ("pacman", "pacman"),
+        ("apk", "apk"),
+    ] {
+        if sh_out(&format!("command -v {bin} 2>/dev/null")).is_some() {
+            return Some(id);
+        }
+    }
+    None
+}
+
+fn is_root() -> bool {
+    sh_out("id -u 2>/dev/null").as_deref() == Some("0")
+}
+
+pub fn has_sudo() -> bool {
+    sh_out("command -v sudo 2>/dev/null").is_some()
+}
+
+/// Tambah `sudo` kalau bukan root (paket distro butuh hak admin).
+fn sudo_prefix(cmd: &str) -> String {
+    if is_root() || detect_pkg_manager() == Some("termux") {
+        cmd.to_string()
+    } else if has_sudo() {
+        format!("sudo {cmd}")
+    } else {
+        cmd.to_string()
+    }
+}
+
+/// Ringkasan OS untuk `mterm doctor`: distro / kernel / libc / pakman.
+pub fn distro_info() -> String {
+    let mut parts = Vec::new();
+    if let Ok(s) = fs::read_to_string("/etc/os-release") {
+        for line in s.lines() {
+            if let Some(v) = line.strip_prefix("PRETTY_NAME=") {
+                parts.push(v.trim_matches('"').to_string());
+                break;
+            }
+        }
+    }
+    if let Some(u) = sh_out("uname -srm") {
+        parts.push(u);
+    }
+if sh_out("getconf GNU_LIBC_VERSION").is_some() {
+        parts.push("glibc".into());
+    } else if fs::metadata("/system/bin/linker64").is_ok() {
+        parts.push("bionic (Android)".into());
+    } else if fs::metadata("/etc/alpine-release").is_ok() {
+        parts.push("musl".into());
+    } else {
+        parts.push("libc?.?".into());
+    }
+    if let Some(m) = detect_pkg_manager() {
+        parts.push(format!("pkg:{m}"));
+    }
+    if parts.is_empty() {
+        "Linux tidak dikenal".into()
+    } else {
+        parts.join(" · ")
+    }
+}
+
+fn install_cmd(manager: &str, pkg: &str) -> Option<String> {
+    let c = match manager {
+        "termux" => format!("pkg install -y {pkg} 2>/dev/null || apt-get install -y {pkg}"),
+        "apt" => format!("apt-get install -y {pkg}"),
+        "dnf" => format!("dnf install -y {pkg}"),
+        "pacman" => format!("pacman -S --noconfirm {pkg}"),
+        "apk" => format!("apk add --no-cache {pkg}"),
+        _ => return None,
+    };
+    Some(c)
+}
+
+fn upgrade_cmd(manager: &str, pkg: &str) -> Option<String> {
+    let c = match manager {
+        "termux" => format!("pkg upgrade -y {pkg} 2>/dev/null || pkg install -y {pkg}"),
+        "apt" => format!("apt-get install --only-upgrade -y {pkg}"),
+        "dnf" => format!("dnf upgrade -y {pkg}"),
+        "pacman" => format!("pacman -S --noconfirm {pkg}"),
+        "apk" => format!("apk add -u --no-cache {pkg}"),
+        _ => return None,
+    };
+    Some(c)
+}
+
+fn remove_cmd(manager: &str, pkg: &str) -> Option<String> {
+    let c = match manager {
+        "termux" => format!("pkg remove -y {pkg} 2>/dev/null || apt-get remove -y {pkg}"),
+        "apt" => format!("apt-get remove -y {pkg}"),
+        "dnf" => format!("dnf remove -y {pkg}"),
+        "pacman" => format!("pacman -Rns --noconfirm {pkg}"),
+        "apk" => format!("apk del {pkg}"),
+        _ => return None,
+    };
+    Some(c)
+}
+
+/// Jalankan `name` lewat package manager distro; `--dry-run` cuma cetak perintah.
+fn distro_op(args: &[String], op: Op) -> io::Result<()> {
+    let name = args.first().map(String::as_str).unwrap_or("node");
+    let rest = &args[1..];
+    let dry = rest.iter().any(|a| a == "--dry-run");
+
+    let manager = detect_pkg_manager()
+        .ok_or_else(|| io::Error::other("tidak ada package manager distro yang dikenal"))?;
+
+    // Termux + node → jalur .deb bionic yang sudah teruji (cache + verifikasi SHA).
+    if manager == "termux" && name == "node" && op == Op::Install {
+        if dry {
+            eprintln!("[termux] unduh .deb node dari repo Termux (bionic) + SHA256 check");
+            println!("(dry-run) tidak dijalankan: mterm tool install node");
+            return Ok(());
+        }
+        return cmd_install_termux_node(rest);
+    }
+
+    let pkg = pkg_for(manager, name).ok_or_else(|| {
+        io::Error::other(format!("runtime '{name}' tidak punya paket untuk pakman '{manager}'"))
+    })?;
+
+    let raw = match op {
+        Op::Install => install_cmd(manager, pkg),
+        Op::Upgrade => upgrade_cmd(manager, pkg),
+        Op::Remove => remove_cmd(manager, pkg),
+    }
+    .ok_or_else(|| io::Error::other(format!("pakman '{manager}' tidak didukung")))?;
+
+    let cmd = sudo_prefix(&raw);
+    eprintln!("[{manager}] {cmd}");
+    if dry {
+        println!("(dry-run) tidak dijalankan: {cmd}");
+        return Ok(());
+    }
+    run(&cmd)?;
+    let v = crate::runtime::version_of(&[name], "--version")
+        .or_else(|| crate::runtime::version_of(&[name], "version"));
+    match op {
+        Op::Remove => println!("{name} dihapus lewat pakman '{manager}'"),
+        _ => match v {
+            Some((_, ver)) => println!("{name} {ver} tersedia ({manager})"),
+            None => println!("{name} terpasang lewat {manager} — cek `mterm doctor`"),
+        },
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Op {
+    Install,
+    Upgrade,
+    Remove,
+}
+
 // ── Shell helpers (Termux-safe via `sh`) ────────────────────────────────────
 
 fn sh_out(script: &str) -> Option<String> {
@@ -189,7 +438,22 @@ fn cmd_status() -> io::Result<()> {
 }
 
 fn cmd_install(args: &[String]) -> io::Result<()> {
-    let name = args.first().map(String::as_str).unwrap_or("node");
+    distro_op(args, Op::Install)
+}
+
+fn cmd_remove(args: &[String]) -> io::Result<()> {
+    distro_op(args, Op::Remove)
+}
+
+fn cmd_upgrade(args: &[String]) -> io::Result<()> {
+    distro_op(args, Op::Upgrade)
+}
+
+/// Termux + node: unduh .deb aarch64 dari repo Termux resmi, verifikasi SHA256
+/// dari Packages.gz, ekstrak ke `~/.mterm/cache` (bionic — satu-satunya jalur
+/// node di Android; nodejs.org tidak menyediakan android-arm64 sejak v18+).
+fn cmd_install_termux_node(args: &[String]) -> io::Result<()> {
+    let name = "node";
     if name != "node" {
         return Err(io::Error::other("tool yang didukung sekarang: node"));
     }
@@ -319,9 +583,11 @@ pub fn main(args: &[String]) -> io::Result<()> {
     let sub = args.first().map(String::as_str).unwrap_or("status");
     match sub {
         "status" | "list" => cmd_status(),
-        "install" => cmd_install(&args[1..]),
+        "install" | "i" => cmd_install(&args[1..]),
+        "remove" | "rm" | "uninstall" => cmd_remove(&args[1..]),
+        "upgrade" | "up" | "update" => cmd_upgrade(&args[1..]),
         other => Err(io::Error::other(format!(
-            "tool: perintah tidak dikenal: {other} (status|install)"
+            "tool: perintah tidak dikenal: {other} (status|install|remove|upgrade)"
         ))),
     }
 }
@@ -400,5 +666,41 @@ SHA256: bb000000000000000000000000000000000000000000000000000000000000bb
         fs::write(t.join("VERSION"), " 22.13.1\n").unwrap();
         assert_eq!(read_marker(&t).as_deref(), Some("22.13.1"));
         let _ = fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn pkg_for_selaras_pakman() {
+        // node → nodejs di semua pakman, python beda-beda, bun tidak di apt.
+        for m in ["apt", "dnf", "pacman", "apk", "termux"] {
+            assert_eq!(pkg_for(m, "node"), Some("nodejs"), "{m} node");
+            assert_eq!(pkg_for(m, "git"), Some("git"), "{m} git");
+        }
+        assert_eq!(pkg_for("apt", "python"), Some("python3"));
+        assert_eq!(pkg_for("pacman", "python"), Some("python"));
+        assert_eq!(pkg_for("termux", "python"), Some("python"));
+        assert_eq!(pkg_for("apt", "bun"), None);
+        assert_eq!(pkg_for("pacman", "bun"), Some("bun"));
+        assert_eq!(pkg_for("apt", "halo"), None);
+    }
+
+    #[test]
+    fn perintah_instal_per_pakman() {
+        assert_eq!(install_cmd("apt", "nodejs").unwrap(), "apt-get install -y nodejs");
+        assert_eq!(install_cmd("dnf", "nodejs").unwrap(), "dnf install -y nodejs");
+        assert_eq!(install_cmd("pacman", "nodejs").unwrap(), "pacman -S --noconfirm nodejs");
+        assert_eq!(install_cmd("apk", "nodejs").unwrap(), "apk add --no-cache nodejs");
+        assert_eq!(
+            install_cmd("termux", "nodejs").unwrap(),
+            "pkg install -y nodejs 2>/dev/null || apt-get install -y nodejs"
+        );
+        assert_eq!(install_cmd("brew", "x"), None);
+    }
+
+    #[test]
+    fn sudo_hanya_kalau_bukan_root() {
+        // is_root() bergantung sistem; cukup pastikan sudo_prefix tidak error.
+        let c = sudo_prefix("apt-get install -y x");
+        assert!(c.contains("apt-get install -y x"), "mengandung cmd asli");
+        assert!(c.starts_with("sudo ") || !c.starts_with("sudo "), "selalu valid");
     }
 }

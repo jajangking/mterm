@@ -1,8 +1,9 @@
 # mterm — Work Map
 
-**Project**: Modern Android terminal, workspace-first + agent-ready  
-**Stack**: Rust core (terminal) + Kotlin/Compose (chrome) + JNI bridge  
-**Status**: F0–F2 core selesai; F3 chrome scaffold; F4/F5/Termux-only work jalan
+**Project**: Modern terminal workspace-first + agent-ready — **aplikasi Linux native**
+**Stack**: Rust core (terminal) + mterm-cli (Linux CLI) — produk utama; Android
+(app/ + JNI) = legacy (tetap di repo, bukan fokus)
+**Status**: F0–F8 tuntas (Android). **PIVOT → Linux native (Fase 9, jalan)**
 
 ---
 
@@ -165,6 +166,32 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
 - [x] Localization skeleton (values/strings.xml id default + values-en/ + stringResource, res.getText; onboarding+settings+notif+sidemenu dilokalisasi) — build sukses;
 - [x] Documentation site — docs/index.html landing + GitHub Pages live jajangking.github.io/mterm (verified 2026-09-13)
 
+## Fase 9 — PIVOT: Aplikasi Linux native (AKTIF)
+**Tujuan**: mterm jadi aplikasi Linux asli (glibc native via apt/dnf/apk/pacman),
+bukan lagi berdiri di atas batasan Android. Android (`app/` + `crates/jni`) jadi
+**legacy** — tidak dihapus, pengembangan pindah ke CLI Linux. Kalau sesi terputus,
+lanjut dari **Milestone 1** (detail: CHECKPOINT → "PIVOT").
+
+- [x] **M1 — CLI bisa install tool via package manager distro**
+      (`mterm tool install/remove/upgrade <name>`, auto-detect `apt`/`dnf`/
+      `apk`/`pacman`; Termux = path `.deb` bionic yang sudah ada, jadi fallback;
+      pemetaan nama→paket: node→nodejs, python→python3, go→golang, dsb;
+      `--dry-run`; non-root → `sudo`; `mterm doctor` + baris OS/distro/libc/pakman)
+      — teruji di Termux 2026-09-13: doctor tampil bionic/termux; dry-run benar;
+- [x] **M2 — `mterm run` terminal interaktif beneran**
+      ukuran dinamis dari host via ioctl TIOCGWINSZ (dipoll tiap loop, bukan
+      SIGWINCH — tanpa dep signal), diteruskan ke PTY (`Session::resize`) +
+      engine (`Terminal::resize`); render diff pakai `dirty_rect` engine (hanya
+      baris berubah), bukan clear+redraw 80x24 tiap loop
+      — teruji 2026-09-13 via `script` di Termux: startup full-redraw, diff
+      repaint hanya baris berubah, ketik/execute/exit bersih, `?25h` restore;
+- [ ] **M3 — Agent-ready polish**
+      (RestBackend Groq + sesi per-workspace + stderr collector sudah ada;
+      tambah `mterm agent init` scaffold workspace agent-ready)
+- [ ] **M4 — Release Linux**
+      (CI job `ubuntu-latest`: cargo test/clippy + tarball biner + install
+      script; docs miring ke "mterm = Linux terminal workspace + agent")
+
 ---
 
 ## Decisions Log
@@ -190,3 +217,6 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
 | 2026-09-12 | Skip reqwest/Groq HTTP (kompilasi berat di Termux) | CI (GH Actions) yang jadi gate tes; backend LLM menyusul |
 | 2026-09-12 | Kitty graphics: APC dicegat di `feed_bytes` sebelum vte (vte 0.11 tak punya hook APC) + base64 decoder ditulis sendiri | hindari dep `base64`; state kitty tetap di core (registry `images`, `pending_apc` buffer lintas feed) |
 | 2026-09-12 | Image ditransfer sebagai `Arc<Vec<u8>>` di event `KittyImage` (refcount clone, bukan copy) | renderer dapat bytes; core tetapkan registry sebagai sumber kebenaran |
+| 2026-09-13 | **PIVOT: mterm = aplikasi Linux native (CLI-first)**, Android jadi legacy | frustrasi user: app Android "tidak bisa install apa-apa" (ekosistem `mterm pkg` kosong + bionic bukan glibc). Di Linux umum: glibc native + apt/dnf → semua hilang |
+| 2026-09-13 | `mterm tool install` pakai package manager distro (apt/dnf/apk/pacman); Termux/bionic jadi fallback | jangan duplikasi paket yang apt/dnf sudah punya; Linux umum = glibc native, tanpa drama bionic |
+| 2026-09-13 | Android `app/` + `crates/jni` + fdroid TIDAK dihapus, cuma di-defer | buang-buang kerja kalau dihapus; bisa jadi referensi/portrenderer ke Linux TUI nanti |
