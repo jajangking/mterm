@@ -130,12 +130,23 @@ fun TermView(session: TermSession) {
         }
         key(frame) {
             Canvas(Modifier.fillMaxSize()) {
-                // PROBE: glyph default-style di (0,0) — uji TextMeasurer murni
+                // PROBE-1: glyph default-style (tanpa fontSize) di pojok
                 drawText(
                     textMeasurer = textMeasurer,
                     text = "A",
                     topLeft = Offset(4f, 4f),
                     style = TextStyle(color = Color.White),
+                )
+                // PROBE-2: glyph fontSize eksplisit 40.sp monospace
+                drawText(
+                    textMeasurer = textMeasurer,
+                    text = "B",
+                    topLeft = Offset(4f, 120f),
+                    style = TextStyle(
+                        color = Color.White,
+                        fontSize = TextUnit(40f, TextUnitType.Sp),
+                        fontFamily = FontFamily.Monospace,
+                    ),
                 )
                 val cellW = size.width / cols
                 val cellH = size.height / rows
