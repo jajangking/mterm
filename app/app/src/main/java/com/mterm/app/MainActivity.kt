@@ -1,6 +1,7 @@
 package com.mterm.app
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.text.Editable
 import android.text.InputType
@@ -38,7 +39,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -67,6 +67,7 @@ private const val MOTION = 32
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Intent(this, TermService::class.java).let { startForegroundService(it) }
         setContent {
             val settingsState = rememberSettings()
             val s = settingsState.value
@@ -86,7 +87,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            val tabs = remember { mutableStateListOf<TabState>() }
+            val tabs = TermStore.tabs
             var activeId by remember { mutableStateOf(0) }
             var settingsOpen by remember { mutableStateOf(false) }
             var sideOpen by remember { mutableStateOf(false) }
@@ -96,13 +97,19 @@ class MainActivity : ComponentActivity() {
 
             val activeTab = tabs.firstOrNull { it.id == activeId }
 
-            // Selalu ada >= 1 tab.
+            // Selalu ada >= 1 tab; restore kalau ada session tersimpan (F4).
             LaunchedEffect(Unit) {
-                if (tabs.isEmpty()) {
-                    val t = TabState(1)
-                    tabs += t
-                    activeId = t.id
+                TermStore.init(ctx)
+                if (TermStore.tabs.isEmpty()) {
+                    TermStore.newTab()
                 }
+                val bg = if (dark) 0xFF1B1B1F.toInt() else 0xFFFFFFFF.toInt()
+                val fg = if (dark) 0xFFE0E0E0.toInt() else 0xFF101014.toInt()
+                TermStore.tabs.forEach {
+                    it.session.defaultBg = bg
+                    it.session.defaultFg = fg
+                }
+                activeId = TermStore.tabs.last().id
                 // Test hook (dev): --es xtermtest mouse1006 → tulis ESC[?1006h
                 // ke ENGINE (mirip aplikasi TUI yang menulis ke stdout PTY).
                 // Bukan input() (PTY stdin → shell) — adb input text pun tak
@@ -139,26 +146,27 @@ class MainActivity : ComponentActivity() {
             }
 
             fun addTab() {
-                val id = (tabs.maxOfOrNull { it.id } ?: 0) + 1
-                val t = TabState(id)
+                val t = TermStore.newTab()
                 t.session.defaultBg = if (dark) 0xFF1B1B1F.toInt() else 0xFFFFFFFF.toInt()
                 t.session.defaultFg = if (dark) 0xFFE0E0E0.toInt() else 0xFF101014.toInt()
-                tabs += t
                 activeId = t.id
             }
 
             fun closeTab(t: TabState) {
-                if (tabs.size <= 1) return
-                tabs.remove(t)
-                NativeTerm.nativeDestroy(t.handle)
-                if (activeId == t.id) {
-                    activeId = tabs.lastOrNull()?.id ?: 0
+                if (TermStore.closeTab(t)) {
+                    if (activeId == t.id) {
+                        activeId = TermStore.tabs.lastOrNull()?.id ?: 0
+                    }
                 }
             }
 
             DisposableEffect(Unit) {
                 onDispose {
-                    tabs.forEach { NativeTerm.nativeDestroy(it.handle) }
+                    // Hanya destroy saat Activity benar-benar ditutup (back), bukan
+                    // saat re-create (config change): pakai isFinishing.
+                    if ((ctx as? ComponentActivity)?.isFinishing == true) {
+                        TermStore.destroyAll()
+                    }
                 }
             }
 
@@ -232,6 +240,15 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Auto-save sesi saat app ke background (Fase 4): file dipakai bila
+        // proses mati dan di-restore pada cold launch berikutnya.
+        if (!isChangingConfigurations) {
+            TermStore.saveAll(this)
         }
     }
 }

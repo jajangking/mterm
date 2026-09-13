@@ -9,10 +9,17 @@ import android.os.IBinder
  * Stub — implementasi keep-alive + PTY manager menyusul.
  */
 class TermService : Service() {
+    private var started = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(1, NotificationHelper.build(this))
+        if (!started) {
+            startForeground(1, NotificationHelper.build(this))
+            started = true
+        }
+        // START_STICKY: kalau sistem membunuh service, coba hidupkan lagi →
+        // proses tetap dikunci hidup biar PTY (thread Rust) jalan terus.
         return START_STICKY
     }
 }

@@ -27,9 +27,11 @@ import androidx.compose.ui.unit.sp
 
 /** Satu tab = satu handle Rust core + PTY (nativeInit). State terminal
  *  (grid/scrollback) hidup di Rust, jadi pindah tab bisa bolak-balik
- *  tanpa kehilangan isi terminal. */
-class TabState(val id: Int) {
-    val handle: Long = NativeTerm.nativeInit(80, 24)
+ *  tanpa kehilangan isi terminal. `restoredHandle` = handle hasil
+ *  `nativeLoadState` (Fase 4 auto-restore); -1 → buat baru. */
+class TabState(val id: Int, restoredHandle: Long = -1) {
+    val handle: Long =
+        if (restoredHandle >= 0) restoredHandle else NativeTerm.nativeInit(80, 24)
     val session = TermSession(handle)
     var title by mutableStateOf("tab $id")
         private set
