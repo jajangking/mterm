@@ -77,8 +77,8 @@ Kerja yang bisa/tidak bisa dikerjakan di Termux — lihat CHECKPOINT.md.
 - [ ] Gradle project skeleton (AGP 8.x, Kotlin 2.x)
 - [x] Compose theme (dark terminal, accent color configurable)
 - [ ] Terminal view: Rust core render → `SurfaceView` / `TextureView`
-- [ ] Tab management: add/remove/switch (session = PTY + Rust core)
-- [ ] Sidebar drawer: git status, project files (read-only preview)
+- [x] Tab management: add/remove/switch (session = PTY + Rust core)
+- [x] Sidebar drawer: git status, project files (read-only preview)
 - [ ] Keyboard handling: IME, Ctrl/Alt/Meta shortcuts, Escape passthrough
 - [ ] Scroll/selection: touch handling → mouse events ke Rust core
   - [x] Rust side: viewport scrollback (`set_scroll_offset`/`scrollback_len`/
