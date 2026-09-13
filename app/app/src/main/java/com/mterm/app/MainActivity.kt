@@ -119,6 +119,7 @@ fun TermView(session: TermSession) {
 
     Box(Modifier.fillMaxSize()) {
         val textMeasurer = rememberTextMeasurer()
+        var lastDrawLog by remember { mutableStateOf(0L) }
         var lastProbe by remember { mutableStateOf(0L) }
         LaunchedEffect(frame) {
             val now = android.os.SystemClock.elapsedRealtime()
@@ -130,23 +131,17 @@ fun TermView(session: TermSession) {
         }
         key(frame) {
             Canvas(Modifier.fillMaxSize()) {
-                // PROBE-1: glyph default-style (tanpa fontSize) di pojok
+                val csize = this.size
+                if (System.currentTimeMillis() - lastDrawLog > 2000) {
+                    lastDrawLog = System.currentTimeMillis()
+                    android.util.Log.i("mterm", "draw size=$csize")
+                }
+                drawRect(color = Color.Red, topLeft = Offset.Zero, size = csize)
                 drawText(
                     textMeasurer = textMeasurer,
                     text = "A",
                     topLeft = Offset(4f, 4f),
                     style = TextStyle(color = Color.White),
-                )
-                // PROBE-2: glyph fontSize eksplisit 40.sp monospace
-                drawText(
-                    textMeasurer = textMeasurer,
-                    text = "B",
-                    topLeft = Offset(4f, 120f),
-                    style = TextStyle(
-                        color = Color.White,
-                        fontSize = TextUnit(40f, TextUnitType.Sp),
-                        fontFamily = FontFamily.Monospace,
-                    ),
                 )
                 val cellW = size.width / cols
                 val cellH = size.height / rows
