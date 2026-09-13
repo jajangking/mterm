@@ -314,6 +314,10 @@ fun TermKeyboard(
                     setOnKeyListener { _, keyCode, event ->
                         if (event?.action == KeyEvent.ACTION_DOWN) {
                             when (keyCode) {
+                                KeyEvent.KEYCODE_ESCAPE -> {
+                                    session.input("\u001b".toByteArray())
+                                    true
+                                }
                                 KeyEvent.KEYCODE_TAB -> {
                                     session.input(byteArrayOf(0x09))
                                     true
