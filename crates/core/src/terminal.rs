@@ -203,6 +203,12 @@ impl Terminal {
         Ok(t)
     }
 
+    /// Mouse aktif bila mode tracking (1000/2/3) ATAU encoding SGR (1006)
+    /// menyala — chrome menangkap sentuhan untuk salah satu mode.
+    pub fn mouse_enabled(&self) -> bool {
+        self.mouse_tracking || self.sgr_mouse
+    }
+
     /// Encode event mouse ke SGR (mode 1006). Kosong kalau SGR belum aktif —
     /// chrome boleh mengirim tanpa cek mode dulu.
     pub fn sgr_mouse_seq(
@@ -739,6 +745,7 @@ impl Perform for Terminal {
             }
             'h' => {
                 if let Some(v) = list.first().copied() {
+                    let was_on = self.mouse_enabled();
                     match v {
                         1049 if self.alt_screen.is_none() => {
                             let (cols, rows) = (self.cols(), self.rows());
@@ -752,14 +759,16 @@ impl Perform for Terminal {
                             let (cols, rows) = (self.cols(), self.rows());
                             self.enter_alt(cols, rows);
                         }
-                        1000 | 1002 | 1003 if private && !self.mouse_tracking => {
+                        1000 | 1002 | 1003 if private => {
                             self.mouse_tracking = true;
-                            self.events.push_back(TerminalEvent::Mouse(true));
                         }
                         1006 if private => {
                             self.sgr_mouse = true;
                         }
                         _ => {}
+                    }
+                    if !was_on && self.mouse_enabled() {
+                        self.events.push_back(TerminalEvent::Mouse(true));
                     }
                 }
             }
@@ -770,14 +779,18 @@ impl Perform for Terminal {
                 if list.first().copied() == Some(1049) {
                     self.cursor.x = self.cursor.saved_x.min(self.cols());
                     self.cursor.y = self.cursor.saved_y.min(self.rows() - 1);
-                } else if private
-                    && matches!(list.first().copied(), Some(1000 | 1002 | 1003))
-                    && self.mouse_tracking
-                {
-                    self.mouse_tracking = false;
-                    self.events.push_back(TerminalEvent::Mouse(false));
-                } else if private && list.first().copied() == Some(1006) {
-                    self.sgr_mouse = false;
+                } else {
+                    let was_on = self.mouse_enabled();
+                    if private {
+                        match list.first().copied() {
+                            Some(1000 | 1002 | 1003) => self.mouse_tracking = false,
+                            Some(1006) => self.sgr_mouse = false,
+                            _ => {}
+                        }
+                    }
+                    if was_on && !self.mouse_enabled() {
+                        self.events.push_back(TerminalEvent::Mouse(false));
+                    }
                 }
             }
             _ => {}
@@ -1133,18 +1146,39 @@ mod tests {
         assert!(!t.sgr_mouse_seq(crate::mouse::BTN_LEFT, 0, false, 1, 1, &mut out));
         assert!(out.is_empty());
 
+        // 1006h saja = mouse aktif (chrome menangkap sentuhan → SGR)
         feed(&mut t, "\x1b[?1006h");
         assert!(t.sgr_mouse, "?1006h menyalakan SGR");
+        assert_eq!(t.take_event(), Some(TerminalEvent::Mouse(true)));
+        assert!(t.mouse_enabled());
         assert!(t.sgr_mouse_seq(crate::mouse::BTN_LEFT, 0, false, 3, 2, &mut out));
         assert_eq!(out, b"\x1b[<0;3;2M");
 
+        // 1006h duplikat → tak emit event ganda
+        feed(&mut t, "\x1b[?1006h");
+        assert_eq!(t.take_event(), None, "duplikat 1006h tidak boleh event baru");
+
+        // 1006 off → Mouse(false)
         feed(&mut t, "\x1b[?1006l");
         assert!(!t.sgr_mouse, "?1006l mematikan SGR");
+        assert_eq!(t.take_event(), Some(TerminalEvent::Mouse(false)));
+        assert!(!t.mouse_enabled());
 
-        // 1006 off tak menyala karena 1000h saja
+        // 1000h tanpa 1006 → SGR encode tetap off, tapi mouse aktif (tracking)
         let mut t2 = term_2x2();
         feed(&mut t2, "\x1b[?1000h");
         assert!(!t2.sgr_mouse, "1000h tanpa 1006 → SGR tetap off");
+        assert!(t2.mouse_enabled(), "1000h → tracking aktif");
+        assert_eq!(t2.take_event(), Some(TerminalEvent::Mouse(true)));
+
+        // 1006l saat 1000h aktif → mouse tetap nonaktif? tidak: tracking masih nyala
+        feed(&mut t2, "\x1b[?1006l");
+        assert!(t2.mouse_enabled(), "1006l tidak mematikan tracking 1000h");
+        assert_eq!(t2.take_event(), None);
+
+        feed(&mut t2, "\x1b[?1000l");
+        assert!(!t2.mouse_enabled());
+        assert_eq!(t2.take_event(), Some(TerminalEvent::Mouse(false)));
     }
 
     #[test]
