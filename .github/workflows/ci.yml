@@ -86,7 +86,6 @@ jobs:
           name: mterm-debug-apk
           path: app/app/build/outputs/apk/debug/*.apk
       - uses: actions/upload-artifact@v4
-        if: ${{ secrets.ANDROID_KEYSTORE_B64 != '' }}
         with:
           name: mterm-release-apk
           path: app/app/build/outputs/apk/release/*.apk
