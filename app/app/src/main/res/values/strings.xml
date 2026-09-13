@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">mterm</string>
+    <string name="tab_title">tab %1$d</string>
+    <string name="hint_tap_keyboard">ketuk layar untuk keyboard</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_font">Ukuran font</string>
+    <string name="settings_theme">Tema</string>
+    <string name="settings_theme_system">Ikuti sistem</string>
+    <string name="settings_theme_light">Terang</string>
+    <string name="settings_theme_dark">Gelap</string>
+    <string name="settings_accent">Warna aksen</string>
+    <string name="settings_profile">Nama profil</string>
+    <string name="settings_close">Tutup</string>
+    <string name="settings_reset">Reset</string>
+    <string name="sidebar_git_na">git: tidak tersedia di device ini</string>
+    <string name="sidebar_cwd">cwd %1$s</string>
+    <string name="notif_title">mterm</string>
+    <string name="notif_session_active">Sesi terminal aktif</string>
+    <string name="onb_welcome">mterm</string>
+    <string name="onb_desc">Terminal lokal di Android\nRust core + PTY, tab, sidebar, dan tema.</string>
+    <string name="onb_f1">Tab: tambah/pindah/tutup sesi lewat bar atas</string>
+    <string name="onb_f2">☰ Sidebar: cwd + jelajah file (preview baca-saja)</string>
+    <string name="onb_f3">⚙ Settings: font, tema, aksen, profil</string>
+    <string name="onb_start">Mulai</string>
+</resources>

@@ -17,6 +17,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -51,6 +52,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -71,7 +73,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settingsState = rememberSettings()
             val s = settingsState.value
-            val dark = s.dark
+            val sysDark = isSystemInDarkTheme()
+            val dark = when (s.theme) {
+                THEME_LIGHT -> false
+                THEME_DARK -> true
+                else -> sysDark
+            }
             val pageColor = if (dark) Color(0xFF0B0B0D) else Color(0xFFF2F1EE)
             val scheme = if (dark) {
                 darkColorScheme(
@@ -233,9 +240,13 @@ class MainActivity : ComponentActivity() {
                         if (settingsOpen) {
                             SettingsPanel(
                                 settings = s,
+                                dark = dark,
                                 onChange = settingsState.onSave,
                                 onClose = { settingsOpen = false },
                             )
+                        }
+                        if (!isOnboarded(ctx)) {
+                            OnboardingOverlay(dark = dark, accent = s.accent, onDone = {})
                         }
                     }
                 }
@@ -372,7 +383,7 @@ fun TermView(
             }
         }
         Text(
-            "ketuk layar untuk keyboard",
+            stringResource(R.string.hint_tap_keyboard),
             color = Color(hint),
             modifier = Modifier
                 .align(Alignment.BottomEnd)

@@ -23,7 +23,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,10 +41,14 @@ import androidx.compose.ui.window.Dialog
 /** Preferensi mterm yang persist lewat SharedPreferences. */
 data class MtermSettings(
     val fontSp: Float = 13f,
-    val dark: Boolean = true,
+    val theme: String = "system", // "system" | "light" | "dark"
     val accent: Int = DEFAULT_ACCENT,
     val profile: String = "default",
 )
+
+const val THEME_SYSTEM = "system"
+const val THEME_LIGHT = "light"
+const val THEME_DARK = "dark"
 
 const val DEFAULT_ACCENT = 0xFF00E5A0.toInt()
 
@@ -73,7 +76,13 @@ fun rememberSettings(): SettingsHolder {
         SettingsHolder(
             MtermSettings(
                 fontSp = prefs.getFloat("font_sp", 13f),
-                dark = prefs.getBoolean("dark", true),
+                theme = prefs.getString("theme", null)
+                    // migrasi dari field lama `dark` (Boolean)
+                    ?: if (prefs.contains("dark")) {
+                        if (prefs.getBoolean("dark", true)) THEME_DARK else THEME_LIGHT
+                    } else {
+                        THEME_SYSTEM
+                    },
                 accent = prefs.getInt("accent", DEFAULT_ACCENT),
                 profile = prefs.getString("profile", "default") ?: "default",
             )
@@ -83,9 +92,10 @@ fun rememberSettings(): SettingsHolder {
         holder.value = s
         prefs.edit()
             .putFloat("font_sp", s.fontSp)
-            .putBoolean("dark", s.dark)
+            .putString("theme", s.theme)
             .putInt("accent", s.accent)
             .putString("profile", s.profile)
+            .remove("dark")
             .apply()
     }
     return holder
@@ -98,17 +108,19 @@ fun rememberSettings(): SettingsHolder {
 @Composable
 fun SettingsPanel(
     settings: MtermSettings,
+    dark: Boolean,
     onChange: (MtermSettings) -> Unit,
     onClose: () -> Unit,
 ) {
+    val res = LocalContext.current.resources
     Dialog(onDismissRequest = onClose) {
         Surface(
             shape = RoundedCornerShape(16.dp),
-            color = if (settings.dark) Color(0xFF15151A) else Color(0xFFFFFFFF),
+            color = if (dark) Color(0xFF15151A) else Color(0xFFFFFFFF),
         ) {
             Column(Modifier.padding(20.dp).fillMaxWidth()) {
                 Text(
-                    "Settings",
+                    res.getString(R.string.settings_title),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 18.sp,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -116,7 +128,7 @@ fun SettingsPanel(
                 Spacer(Modifier.height(12.dp))
 
                 Text(
-                    "Ukuran font",
+                    res.getString(R.string.settings_font),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
@@ -145,21 +157,48 @@ fun SettingsPanel(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
-                        "Tema gelap",
+                        res.getString(R.string.settings_theme),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 14.sp,
                         modifier = Modifier.weight(1f),
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Switch(
-                        checked = settings.dark,
-                        onCheckedChange = { onChange(settings.copy(dark = it)) },
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val opts = listOf(
+                        THEME_SYSTEM to res.getString(R.string.settings_theme_system),
+                        THEME_LIGHT to res.getString(R.string.settings_theme_light),
+                        THEME_DARK to res.getString(R.string.settings_theme_dark),
                     )
+                    opts.forEach { (key, label) ->
+                        val selected = settings.theme == key
+                        val chipColor =
+                            if (selected) Color(settings.accent).copy(alpha = 0.18f)
+                            else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
+                        val textColor =
+                            if (selected) Color(settings.accent)
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = chipColor,
+                            modifier = Modifier.clickable {
+                                onChange(settings.copy(theme = key))
+                            },
+                        ) {
+                            Text(
+                                label,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                color = textColor,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            )
+                        }
+                    }
                 }
 
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Warna aksen",
+                    res.getString(R.string.settings_accent),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
@@ -185,7 +224,7 @@ fun SettingsPanel(
                 OutlinedTextField(
                     value = settings.profile,
                     onValueChange = { onChange(settings.copy(profile = it)) },
-                    label = { Text("Nama profil", fontFamily = FontFamily.Monospace) },
+                    label = { Text(res.getString(R.string.settings_profile), fontFamily = FontFamily.Monospace) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -196,7 +235,7 @@ fun SettingsPanel(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
-                        "Tutup",
+                        res.getString(R.string.settings_close),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 14.sp,
                         color = Color(settings.accent),
@@ -206,7 +245,7 @@ fun SettingsPanel(
                     )
                     Spacer(Modifier.width(16.dp))
                     Text(
-                        "Reset",
+                        res.getString(R.string.settings_reset),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
@@ -216,7 +255,7 @@ fun SettingsPanel(
                                 onChange(
                                     MtermSettings(
                                         fontSp = 13f,
-                                        dark = true,
+                                        theme = THEME_SYSTEM,
                                         accent = DEFAULT_ACCENT,
                                         profile = "default",
                                     )

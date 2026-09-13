@@ -111,7 +111,7 @@ fun SidebarDrawer(
                         }
                     } else {
                         Text(
-                            "git: tidak tersedia di device ini",
+                            androidx.compose.ui.res.stringResource(R.string.sidebar_git_na),
                             fontFamily = FontFamily.Monospace,
                             fontSize = 10.sp,
                             color = textColor.copy(alpha = 0.5f),
