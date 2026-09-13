@@ -10,6 +10,8 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -46,6 +48,10 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+
+// Kode SGR xterm (crates/core/src/mouse.rs): 0=left, 1=middle, 2=right; MOTION=32.
+private const val BTN_LEFT = 0
+private const val MOTION = 32
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -94,37 +100,13 @@ fun TermView(session: TermSession) {
     var mouseMode by remember { mutableStateOf(false) }
 
     DisposableEffect(session) {
-        var lastTick = 0L
         val timer = kotlin.concurrent.timer(period = 100) {
-            val d = session.dirty()
-            if (d) frame++
-while (true) {
-                            when (val ev = session.takeEvent() ?: break) {
-                                is TermEvent.Mouse -> {
-                                    android.util.Log.i("mterm", "ev=$ev")
-                                    mouseMode = ev.enabled
-                                }
-                                else -> {}
-                            }
-                        }
-            val now = android.os.SystemClock.elapsedRealtime()
-            if (now - lastTick > 2000) {
-                lastTick = now
-                var evs = mutableListOf<Int>()
-                while (true) {
-                    val ev = session.takeEvent() ?: break
-                    evs += when (ev) {
-                        is TermEvent.Mouse -> if (ev.enabled) 1 else 0
-                        is TermEvent.Title -> 4
-                        TermEvent.Bell -> 2
-                    }
-                    if (ev is TermEvent.Mouse) {
-                        android.util.Log.i("mterm", "ev=$ev")
-                        mouseMode = ev.enabled
-                    }
+            if (session.dirty()) frame++
+            while (true) {
+                when (val ev = session.takeEvent() ?: break) {
+                    is TermEvent.Mouse -> mouseMode = ev.enabled
+                    else -> {}
                 }
-                val sgr = session.sgrMouse(0, 0, false, 30, 10).size
-                android.util.Log.i("mterm", "tick d=$d f=$frame cols=$cols rows=$rows mouse=$mouseMode evs=$evs sgr=$sgr")
             }
         }
         onDispose { timer.cancel() }
@@ -226,7 +208,7 @@ fun TermKeyboard(
     Box(
         Modifier
             .fillMaxSize()
-            .pointerInput(session, mouseMode) {
+            .pointerInput(session, mouseMode, cellW, cellH, slopPx) {
                 fun showKeyboard() {
                     val v = edit ?: return
                     if (!v.hasFocus()) v.requestFocus()
@@ -235,35 +217,51 @@ fun TermKeyboard(
                     ime.showSoftInput(v, InputMethodManager.SHOW_IMPLICIT)
                 }
 
-                // kood SGR (sinkron dgn crates/core/src/mouse.rs): BTN_LEFT=0, MOTION=32.
+                // kode SGR (sinkron dgn crates/core/src/mouse.rs): BTN_LEFT=0, MOTION=32.
                 fun sendMouse(code: Int, release: Boolean, x: Int, y: Int) {
                     if (!mouseMode) return
                     val bytes = session.sgrMouse(code, 0, release, x, y)
                     if (bytes.isNotEmpty()) session.input(bytes)
                 }
 
-                var totalDy = 0f
-                var startOff = 0
-                var lastX = 1
-                var lastY = 1
-                detectDragGestures(
-                    onDragStart = { pos ->
-                        totalDy = 0f
-                        startOff = scrollOffset
-                        lastX = (pos.x / cellW).toInt() + 1
-                        lastY = (pos.y / cellH).toInt() + 1
-                        if (mouseMode) sendMouse(0, false, lastX, lastY)
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        val x = (change.position.x / cellW).toInt() + 1
-                        val y = (change.position.y / cellH).toInt() + 1
-                        if (mouseMode) {
-                            lastX = x
-                            lastY = y
-                            totalDy += dragAmount.y
-                            if (kotlin.math.abs(totalDy) > slopPx) sendMouse(32, false, x, y)
-                        } else {
+                if (mouseMode) {
+                    // TUI menyalakan SGR mouse: tap = klik (press + release), drag =
+                    // press di titik awal → motion (bit 32) → release di titik akhir.
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val x0 = (down.position.x / cellW).toInt() + 1
+                        val y0 = (down.position.y / cellH).toInt() + 1
+                        sendMouse(BTN_LEFT, false, x0, y0)
+                        var lastX = x0
+                        var lastY = y0
+                        while (true) {
+                            val ev = awaitPointerEvent()
+                            val change = ev.changes.first()
+                            val x = (change.position.x / cellW).toInt() + 1
+                            val y = (change.position.y / cellH).toInt() + 1
+                            if (change.pressed) {
+                                val moved =
+                                    (change.position - down.position).getDistance() > slopPx
+                                if (moved && (x != lastX || y != lastY)) {
+                                    sendMouse(BTN_LEFT or MOTION, false, x, y)
+                                    lastX = x
+                                    lastY = y
+                                }
+                                change.consume()
+                            } else {
+                                sendMouse(BTN_LEFT, true, x, y)
+                                change.consume()
+                                break
+                            }
+                        }
+                    }
+                } else {
+                    var totalDy = 0f
+                    var startOff = 0
+                    detectDragGestures(
+                        onDragStart = { totalDy = 0f; startOff = scrollOffset },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
                             totalDy += dragAmount.y
                             if (kotlin.math.abs(totalDy) > slopPx) {
                                 val off = (startOff - (totalDy / cellH).toInt())
@@ -275,17 +273,15 @@ fun TermKeyboard(
                                     onScroll()
                                 }
                             }
-                        }
-                    },
-                    onDragEnd = {
-                        if (mouseMode) sendMouse(0, true, lastX, lastY)
-                        else if (kotlin.math.abs(totalDy) <= slopPx) showKeyboard()
-                    },
-                    onDragCancel = {
-                        if (mouseMode) sendMouse(0, true, lastX, lastY)
-                        else if (kotlin.math.abs(totalDy) <= slopPx) showKeyboard()
-                    },
-                )
+                        },
+                        onDragEnd = {
+                            if (kotlin.math.abs(totalDy) <= slopPx) showKeyboard()
+                        },
+                        onDragCancel = {
+                            if (kotlin.math.abs(totalDy) <= slopPx) showKeyboard()
+                        },
+                    )
+                }
             }
     ) {
         AndroidView(

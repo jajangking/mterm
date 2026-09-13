@@ -217,3 +217,13 @@ Bila build APK mau dilanjutkan lokal: `./scripts/build-android.sh` (butuh
   `LocalViewConfiguration.touchSlop` di Compose ini **Float px**, bukan `Dp`
   (3 fix build putar-putar `.toPx()`). Terverifikasi device: `seq 1 40` →
   `scroll off=2 max=18`. Commit `caeeac9` → `bd5cdfa`.
+- **2026-09-13** Fase 3 Chrome: **mouse/TUI → SGR selesai di sisi chrome**.
+  Bersihkan probe debug `tick` (drain event + log 2dtk dihapus) → drain event
+  bersih tiap 100ms. Handler gesture direwrite: saat `mouseMode` aktif, tap =
+  **klik asli** (press di posisi down + release — sebelumnya cuma release karena
+  `detectDragGestures` tak panggil `onDragStart` buat tap murni), drag = press →
+  motion (bit 32) → release; saat off tetap scrollback + tap→keyboard
+  (`awaitEachGesture/awaitFirstDown`, Compose BOM 2024.12.01). Sinyal SGR
+  ngikut `crates/core/src/mouse.rs` (`BTN_LEFT=0`, `MOTION=32`), gating `sgr_mouse`
+  di engine. **Verifikasi device pending** (device offline saat commit); compile
+  via CI — commit tunggal `MainActivity.kt`.
