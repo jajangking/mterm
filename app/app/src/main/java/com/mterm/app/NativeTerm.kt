@@ -108,16 +108,16 @@ class TermSession(private val handle: Long) {
         rows: Int,
     ): Boolean = NativeTerm.nativeSessionStart(handle, cmd, args ?: arrayOf(), cwd, cols, rows)
 
-    /** Keystroke user → shell PTY (bukan feed engine langsung), plus echo
-     *  lokal: byte yang sama juga di-feed ke engine biar ketikan langsung
-     *  kelihatan (tty di perangkat echo-off). */
+    /** Keystroke/user input → shell PTY. Tampilan mengikuti echo PTY shell
+     *  (default ON), jadi tidak perlu feed engine langsung lagi — feed ganda
+     *  dulu bikin setiap karakter tampil 2x. Bonus: `stty -echo` (password)
+     *  tidak lagi bocor ke layar. */
     fun input(bytes: ByteArray): Boolean {
         val ok = NativeTerm.nativeRunnerInput(handle, bytes)
         android.util.Log.i(
             "mterm",
             "input ${bytes.size}b ok=$ok bytes=${bytes.map { it.toInt() and 0xff }}"
         )
-        if (ok) NativeTerm.nativeWrite(handle, bytes)
         return ok
     }
 
