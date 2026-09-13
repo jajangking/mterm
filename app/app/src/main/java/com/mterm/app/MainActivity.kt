@@ -10,7 +10,6 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -117,25 +116,15 @@ fun TermView(session: TermSession) {
         val cellW = maxWidth / cols
         val cellH = maxHeight / rows
         val fs = (cellW.value / 0.62f).sp
-        Column(
-            Modifier
-                .fillMaxSize()
-                .background(Color(0xFF0E0E12))
-        ) {
+        Column(Modifier.fillMaxSize()) {
             for (row in 0 until rows) {
                 val line = remember(row, frame) {
                     buildAnnotatedString {
                         for (x in 0 until cols) {
                             val c = session.cellAt(x, row) ?: continue
                             val ch = c.third
-                            withStyle(
-                                SpanStyle(
-                                    color = Color(c.first),
-                                    background = Color(c.second),
-                                )
-                            ) {
-                                append(if (ch == '\u0000') ' ' else ch.toString())
-                            }
+                            if (ch == '\u0000' || ch == ' ') continue
+                            withStyle(SpanStyle(color = Color(c.first))) { append(ch.toString()) }
                         }
                     }
                 }
