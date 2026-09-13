@@ -114,7 +114,7 @@ fun TermView(session: TermSession) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val cellW = maxWidth / cols
         val cellH = maxHeight / rows
-        val fs = (cellW.value / 0.55f).sp
+        val fs = (cellW.value / 0.62f).sp
         Column(Modifier.fillMaxSize()) {
             for (row in 0 until rows) {
                 val line = remember(row, frame) {
