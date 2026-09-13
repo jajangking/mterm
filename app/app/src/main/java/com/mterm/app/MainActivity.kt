@@ -34,8 +34,13 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 
@@ -101,36 +106,40 @@ fun TermView(session: TermSession) {
     }
 
     Box(Modifier.fillMaxSize()) {
+        val textMeasurer = rememberTextMeasurer()
         key(frame) {
             Canvas(Modifier.fillMaxSize()) {
-            val cellW = size.width / cols
-            val cellH = size.height / rows
-            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                typeface = android.graphics.Typeface.MONOSPACE
-                // lebar glyph monospace ≈ 0.6×textSize → isi lebar sel
-                textSize = cellW * 1.6f
-            }
-            val fm = paint.fontMetrics
-            val buf = charArrayOf(' ')
-            for (y in 0 until rows) {
-                val top = y * cellH
-                val baseline = top + cellH / 2f - (fm.ascent + fm.descent) / 2f
-                for (x in 0 until cols) {
-                    val cell = session.cellAt(x, y) ?: continue
-                    if (cell.second == 0) continue
-                    drawRect(
-                        color = Color(cell.second),
-                        topLeft = Offset(x * cellW, top),
-                        size = Size(cellW, cellH + 1f),
-                    )
-                    val ch = cell.third
-                    if (ch != ' ' && ch != '\u0000') {
-                        paint.color = cell.first
-                        buf[0] = ch
-                        drawIntoCanvas { it.drawText(buf, 0, 1, x * cellW, baseline, paint) }
+                val cellW = size.width / cols
+                val cellH = size.height / rows
+                // lebar glyph monospace ≈ 0.55×fontSize → isi lebar sel
+                val fontSize = cellW * 1.7f
+                val glyphH = fontSize * 1.25f
+                for (y in 0 until rows) {
+                    val top = y * cellH
+                    val glyphTop = top + (cellH - glyphH) / 2f
+                    for (x in 0 until cols) {
+                        val cell = session.cellAt(x, y) ?: continue
+                        if (cell.second == 0) continue
+                        drawRect(
+                            color = Color(cell.second),
+                            topLeft = Offset(x * cellW, top),
+                            size = Size(cellW, cellH + 1f),
+                        )
+                        val ch = cell.third
+                        if (ch != ' ' && ch != '\u0000') {
+                            drawText(
+                                textMeasurer = textMeasurer,
+                                text = ch.toString(),
+                                topLeft = Offset(x * cellW, glyphTop),
+                                style = TextStyle(
+                                    color = Color(cell.first),
+                                    fontSize = TextUnit(fontSize, TextUnitType.Sp),
+                                    fontFamily = FontFamily.Monospace,
+                                ),
+                            )
+                        }
                     }
                 }
-            }
             }
         }
         Text(
