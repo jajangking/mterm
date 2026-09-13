@@ -11,12 +11,9 @@ import android.widget.EditText
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -37,7 +34,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -110,32 +106,39 @@ fun TermView(session: TermSession) {
     }
 
     Box(Modifier.fillMaxSize()) {
-        var canvasLog by remember { mutableStateOf("?") }
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(120.dp)
-                .background(Color.Magenta)
-                .padding(top = 30.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(canvasLog, color = Color.White)
-        }
         val textMeasurer = rememberTextMeasurer()
-        var diag by remember { mutableStateOf(0) }
-        LaunchedEffect(frame) {
-            if (diag < 3) {
-                diag++
-                android.util.Log.i("mterm", "diag f=$frame csize=$canvasLog")
-            }
-        }
         key(frame) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Color.Yellow)
-            ) {
-                Text("MTERM-PROBE ${canvasLog}", color = Color.Red, modifier = Modifier.align(Alignment.TopCenter))
+            Canvas(Modifier.fillMaxSize()) {
+                val cellW = size.width / cols
+                val cellH = size.height / rows
+                // lebar glyph monospace ≈ 0.55×fontSize → isi lebar sel
+                val fontSize = cellW * 1.7f
+                val glyphH = fontSize * 1.25f
+                for (y in 0 until rows) {
+                    val top = y * cellH
+                    val glyphTop = top + (cellH - glyphH) / 2f
+                    for (x in 0 until cols) {
+                        val cell = session.cellAt(x, y) ?: continue
+                        drawRect(
+                            color = Color(cell.second),
+                            topLeft = Offset(x * cellW, top),
+                            size = Size(cellW, cellH + 1f),
+                        )
+                        val ch = cell.third
+                        if (ch != ' ' && ch != '\u0000') {
+                            drawText(
+                                textMeasurer = textMeasurer,
+                                text = ch.toString(),
+                                topLeft = Offset(x * cellW, glyphTop),
+                                style = TextStyle(
+                                    color = Color(cell.first),
+                                    fontSize = TextUnit(fontSize, TextUnitType.Sp),
+                                    fontFamily = FontFamily.Monospace,
+                                ),
+                            )
+                        }
+                    }
+                }
             }
         }
         Text(
