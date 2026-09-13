@@ -192,11 +192,12 @@ fun TermKeyboard(session: TermSession, cellH: Float, onScroll: () -> Unit) {
     var edit by remember { mutableStateOf<EditText?>(null) }
     var scrollOffset by remember { mutableStateOf(0) }
     val vc = LocalViewConfiguration.current
+    val density = LocalDensity.current
+    val slopPx = with(density) { vc.touchSlop.toPx() }
     Box(
         Modifier
             .fillMaxSize()
             .pointerInput(session) {
-                val slopPx = vc.touchSlop.toPx()
                 var totalDy = 0f
                 var startOff = 0
                 fun showKeyboard() {
