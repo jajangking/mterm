@@ -103,18 +103,26 @@ class MainActivity : ComponentActivity() {
                     tabs += t
                     activeId = t.id
                 }
-                // Test hook (dev): --es xtermtest mouse1006 → kirim ESC[?1006h
-                // langsung ke session (bypass shell, karena adb input text
-                // tidak bisa mengetik byte ESC 0x1b).
+                // Test hook (dev): --es xtermtest mouse1006 → tulis ESC[?1006h
+                // ke ENGINE (mirip aplikasi TUI yang menulis ke stdout PTY).
+                // Bukan input() (PTY stdin → shell) — adb input text pun tak
+                // bisa mengetik byte ESC.
                 if (testHook == "mouse1006") {
                     val bytes = "\u001b[?1006h".toByteArray()
                     for (i in 1..10) {
                         val t = tabs.firstOrNull { it.id == activeId } ?: break
                         if (t.session.input(bytes)) {
-                            android.util.Log.i("mterm", "test-hook: ESC[?1006h terkirim ke PTY")
+                            android.util.Log.i("mterm", "test-hook: PTY stdin OK (input)")
                             break
                         }
                         kotlinx.coroutines.delay(500)
+                    }
+                    // tunggu PTY jalan dulu, terus feed engine langsung
+                    kotlinx.coroutines.delay(800)
+                    val t = tabs.firstOrNull { it.id == activeId }
+                    if (t != null) {
+                        t.session.write(bytes)
+                        android.util.Log.i("mterm", "test-hook: ESC[?1006h ke engine (write)")
                     }
                 }
             }
