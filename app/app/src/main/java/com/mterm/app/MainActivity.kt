@@ -130,6 +130,13 @@ fun TermView(session: TermSession) {
         }
         key(frame) {
             Canvas(Modifier.fillMaxSize()) {
+                // PROBE: glyph default-style di (0,0) — uji TextMeasurer murni
+                drawText(
+                    textMeasurer = textMeasurer,
+                    text = "A",
+                    topLeft = Offset(4f, 4f),
+                    style = TextStyle(color = Color.White),
+                )
                 val cellW = size.width / cols
                 val cellH = size.height / rows
                 // lebar glyph monospace ≈ 0.55×fontSize → isi lebar sel
