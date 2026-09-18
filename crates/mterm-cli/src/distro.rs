@@ -34,6 +34,14 @@ fn meta_file(name: &str) -> PathBuf {
     distro_dir(name).join("distro.json")
 }
 
+/// Direktori kerja sementara di bawah `~/.mterm` — lebih aman daripada
+/// `env::temp_dir()` (Android app tak punya TMPDIR → fallback `/tmp` yang
+/// tak writable di sandbox → "Permission denied (os error 13)").
+fn tmp_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    PathBuf::from(home).join(".mterm").join("tmp")
+}
+
 fn read_meta(name: &str) -> Option<serde_json::Value> {
     let s = fs::read_to_string(meta_file(name)).ok()?;
     serde_json::from_str(&s).ok()
@@ -226,7 +234,7 @@ fn cmd_install(name: &str) -> io::Result<()> {
     let (ver, file) = latest_version(spec.base_url, &arch)?;
     let url = format!("{}{}", spec.base_url, file);
 
-    let tmp_dir = std::env::temp_dir().join(format!("mterm-distro-{}", name));
+    let tmp_dir = tmp_dir().join(format!("mterm-distro-{}", name));
     fs::create_dir_all(&tmp_dir)?;
     let tarball = tmp_dir.join(&file);
     println!("[2/4] unduh {file} ({url})");
@@ -432,7 +440,9 @@ fn cmd_login(name: &str, args: &[String]) -> io::Result<()> {
         .arg("-l")
         .args(args);
     // env diberikan langsung (ubuntu-base tak punya /usr/bin/env);
-    // buang preload host biar loader guest bersih.
+    // buang preload host biar loader guest bersih. LD_LIBRARY_PATH
+    // DIPERTAHANKAN — di sandbox app proot butuh libtalloc.so.2 dari
+    // bundle mterm/lib (wrapper shell app sudah menge-setnya).
     cmd.env("HOME", "/root")
         .env("TERM", term)
         .env(
@@ -440,8 +450,7 @@ fn cmd_login(name: &str, args: &[String]) -> io::Result<()> {
             "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         )
         .env("USER", "root")
-        .env_remove("LD_PRELOAD")
-        .env_remove("LD_LIBRARY_PATH");
+        .env_remove("LD_PRELOAD");
     // warisi stdio → shell interaktif mengambil alih terminal saat ini
     let status = cmd.status()?;
     // setelah proot keluar, terminal sudah di-restore oleh OS; tidak perlu raw.
