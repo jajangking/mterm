@@ -431,9 +431,9 @@ fn cmd_login(name: &str, args: &[String]) -> io::Result<()> {
     }
     let Some(proot) = proot_bin() else {
         return Err(io::Error::new(
-        io::ErrorKind::NotFound,
-        "butuh `proot` untuk login (Termux: pkg install proot)",
-    ));
+            io::ErrorKind::NotFound,
+            "butuh `proot` untuk login (Termux: pkg install proot)",
+        ));
     };
     if !proot_available() {
         return Err(io::Error::other(
