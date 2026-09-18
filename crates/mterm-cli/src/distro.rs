@@ -61,32 +61,68 @@ const DISTROS: &[DistroSpec] = &[DistroSpec {
     base_url: "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/",
 }];
 
-// ── HTTP helper via curl (tersedia di Termux & distro Linux) ─────────────
+// ── HTTP helper: curl, fallback wget (Android/toybox) ────────────────────
+// App sandbox Android tak punya curl; toybox menyediakan wget. Dipakai untuk
+// unduh rootfs + listing + SHA256SUMS.
 
 fn curl(url: &str, out: Option<&Path>) -> io::Result<Vec<u8>> {
-    let mut cmd = std::process::Command::new("curl");
-    cmd.arg("-fsSL")
-        .arg("-m")
-        .arg("300")
-        .arg("-A")
-        .arg(format!("mterm/{}", env!("CARGO_PKG_VERSION")));
-    if let Some(p) = out {
-        cmd.arg("-o").arg(p);
-        cmd.stdout(std::process::Stdio::null());
+    if command_exists("curl") {
+        let mut cmd = std::process::Command::new("curl");
+        cmd.arg("-fsSL")
+            .arg("-m")
+            .arg("300")
+            .arg("-A")
+            .arg(format!("mterm/{}", env!("CARGO_PKG_VERSION")));
+        if let Some(p) = out {
+            cmd.arg("-o").arg(p);
+            cmd.stdout(std::process::Stdio::null());
+        }
+        cmd.arg(url);
+        let out_bin = cmd.output()?;
+        if out_bin.status.success() {
+            return Ok(if out.is_none() {
+                out_bin.stdout
+            } else {
+                Vec::new()
+            });
+        }
     }
-    cmd.arg(url);
-    let out_bin = cmd.output()?;
-    if !out_bin.status.success() {
-        return Err(io::Error::other(format!(
-            "curl gagal ({}): {url}",
-            out_bin.status
-        )));
+    if command_exists("wget") {
+        let mut cmd = std::process::Command::new("wget");
+        cmd.arg("-q")
+            .arg("-T")
+            .arg("60")
+            .arg("-O")
+            .arg(
+                out.map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "-".into()),
+            )
+            .arg("--user-agent")
+            .arg(format!("mterm/{}", env!("CARGO_PKG_VERSION")))
+            .arg(url);
+        let out_bin = cmd.output()?;
+        if out_bin.status.success() {
+            return Ok(if out.is_none() {
+                out_bin.stdout
+            } else {
+                Vec::new()
+            });
+        }
     }
-    Ok(if out.is_none() {
-        out_bin.stdout
-    } else {
-        Vec::new()
-    })
+    Err(io::Error::other(
+        "tidak ada curl/wget untuk mengunduh; pasang curl (apt install curl / pkg install curl)",
+    ))
+}
+
+fn command_exists(name: &str) -> bool {
+    std::process::Command::new(name)
+        .arg("--version")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 // ── Resolusi versi dari halaman listing ──────────────────────────────────

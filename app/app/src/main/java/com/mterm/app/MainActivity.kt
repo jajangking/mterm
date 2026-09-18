@@ -330,7 +330,7 @@ fun TermView(
                 cols = dCols
                 rows = dRows
                 session.startSession(
-                    "/system/bin/sh",
+                    MtermBootstrap.shellWrapper(ctx),
                     null,
                     ctx.filesDir.path,
                     dCols,
