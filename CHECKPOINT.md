@@ -55,6 +55,25 @@ Sisa M1 jika sesi lanjut:
 
 **Lanjut → M2** (`mterm run` interaktif penuh — SIGWINCH, render diff, resize PTY).
 
+### Fase A — `mterm distro` TUNTAS (2026-09-18)
+Visi terkoreksi: mterm = terminal sendiri yang bisa **install distro Linux**
+(ala proot-distro, tapi jadi fitur mterm). Ditambahkan `crates/mterm-cli/src/distro.rs`.
+- `mterm distro list` — daftar distro (ubuntu) + status install
+- `mterm distro install ubuntu` — resolve versi dari listing cdimage.ubuntu.com
+  (24.04.x), unduh `ubuntu-base-*base-<arch>.tar.gz`, verifikasi SHA-256
+  (untuk deb822), ekstrak **pakai ekstraktor Rust sendiri** (flate2+tar) karena
+  FS Android menolak `link()` (=GNU tar gagal di hardlink perl/gunzip);
+  fallback copy untuk entry hardlink.
+- `mterm distro login ubuntu` — proot `-0 -r rootfs` + **exec pertama lewat
+  dynamic loader** (execve via proot di Termux ENOENT; dari dalam proot normal),
+  env bersih (HOME=/root, PATH guest, buang LD_PRELOAD), tulis resolv.conf bila
+  kosong (tar ubuntu-base berisi file kosong → apt "Temporary failure resolving").
+- Terbukti: `apt-get update` + `apt-get install cowsay` JALAN di dalam Ubuntu
+  24.04.5 arm64 (root, uid 0). 119 test, clippy 0.
+
+Lanjut → **Fase B**: bundle binary `mterm` + `proot` ke dalam APK Android,
+export PATH di terminal app → `mterm distro` bisa dipakai di device mterm sendiri.
+
 ### Status M2 — TUNTAS (2026-09-13)
 - `run.rs` ditulis ulang Linux-first: `tty_size()` via `ioctl(TIOCGWINSZ)`
   (stdin lalu stdout, fallback 80x24), dipoll tiap loop → deteksi resize host →

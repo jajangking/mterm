@@ -1,6 +1,7 @@
 //! mterm CLI: `mterm run` (PTY↔engine), `mterm doctor`, `mterm profile`, `mterm agent`.
 
 mod agent;
+mod distro;
 mod doctor;
 mod pkg;
 mod profile;
@@ -21,6 +22,7 @@ fn main() {
         "profile" => profile::main(&args[2..]),
         "tool" => tool::main(&args[2..]),
         "pkg" => pkg::main(&args[2..]),
+        "distro" => distro::main(&args[2..]),
         "agent" => agent::main(&args[2..]),
         "help" | "--help" | "-h" => {
             print_usage();
@@ -51,6 +53,8 @@ usage:
   mterm tool status|install|remove|upgrade <name> [--dry-run] [--version vX]
                               install via pakman distro (apt/dnf/apk/pacman)
   mterm pkg  keygen|make-repo|mirrors|update|list|search|info|install|remove|verify
+  mterm distro list|install <ubuntu>|login <ubuntu> [cmd...]
+                            install/jalankan distro Linux (proot)
   mterm agent start|stop|restart|list|status|ask|reset|history|stderr [clear]
 ",
         env!("CARGO_PKG_VERSION")
