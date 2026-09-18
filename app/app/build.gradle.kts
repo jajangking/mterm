@@ -20,7 +20,7 @@ android {
     defaultConfig {
         applicationId = "com.mterm.app"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 27
         versionCode = 1
         versionName = "0.1.0"
 
