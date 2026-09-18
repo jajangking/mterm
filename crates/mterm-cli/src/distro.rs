@@ -61,11 +61,14 @@ const DISTROS: &[DistroSpec] = &[DistroSpec {
     base_url: "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/",
 }];
 
-// ── HTTP helper: curl, fallback wget (Android/toybox) ────────────────────
-// App sandbox Android tak punya curl; toybox menyediakan wget. Dipakai untuk
-// unduh rootfs + listing + SHA256SUMS.
+// ── HTTP helper: ureq (murni Rust, rustls) — tanpa curl/wget eksternal ────
+// App-sandbox Android TIDAK punya curl maupun wget (toybox tak menyediakan
+// wget di versi ini). Karena mterm binary self-contained, dipakai ureq+rustls
+// langsung — tak butuh biner eksternal apa pun di host.
 
 fn curl(url: &str, out: Option<&Path>) -> io::Result<Vec<u8>> {
+    // Porsi exec: jika mterm dijalankan dari Termux (punya curl), manfaatkan
+    // curl utk transparansi debugging; selain itu (sandbox app) ureq.
     if command_exists("curl") {
         let mut cmd = std::process::Command::new("curl");
         cmd.arg("-fsSL")
@@ -87,31 +90,24 @@ fn curl(url: &str, out: Option<&Path>) -> io::Result<Vec<u8>> {
             });
         }
     }
-    if command_exists("wget") {
-        let mut cmd = std::process::Command::new("wget");
-        cmd.arg("-q")
-            .arg("-T")
-            .arg("60")
-            .arg("-O")
-            .arg(
-                out.map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| "-".into()),
-            )
-            .arg("--user-agent")
-            .arg(format!("mterm/{}", env!("CARGO_PKG_VERSION")))
-            .arg(url);
-        let out_bin = cmd.output()?;
-        if out_bin.status.success() {
-            return Ok(if out.is_none() {
-                out_bin.stdout
-            } else {
-                Vec::new()
-            });
-        }
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(300))
+        .redirects(10)
+        .user_agent(format!("mterm/{}", env!("CARGO_PKG_VERSION")))
+        .build();
+    let resp = agent
+        .get(url)
+        .call()
+        .map_err(|e| io::Error::other(format!("gagal mengunduh {url}: {e}")))?;
+    if let Some(p) = out {
+        let mut file = std::fs::File::create(p)?;
+        let mut reader = resp.into_body().into_reader();
+        std::io::copy(&mut reader, &mut file)?;
+        return Ok(Vec::new());
     }
-    Err(io::Error::other(
-        "tidak ada curl/wget untuk mengunduh; pasang curl (apt install curl / pkg install curl)",
-    ))
+    let mut buf = Vec::new();
+    resp.into_body().into_reader().read_to_end(&mut buf)?;
+    Ok(buf)
 }
 
 fn command_exists(name: &str) -> bool {
