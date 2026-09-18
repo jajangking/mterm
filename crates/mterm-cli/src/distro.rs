@@ -90,7 +90,7 @@ fn curl(url: &str, out: Option<&Path>) -> io::Result<Vec<u8>> {
             });
         }
     }
-    let agent = ureq::AgentBuilder::new()
+    let agent = ureq::Agent::config_builder()
         .timeout(std::time::Duration::from_secs(300))
         .redirects(10)
         .user_agent(format!("mterm/{}", env!("CARGO_PKG_VERSION")))
