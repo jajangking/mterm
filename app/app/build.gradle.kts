@@ -53,6 +53,14 @@ android {
         compose = true
     }
 
+    lint {
+        // App ini side-load pribadi (bukan ke Play Store), targetSdk sengaja
+        // diturunkan ke 27 agar masuk domain SELinux untrusted_app_27 (persis
+        // Termux) → bisa exec biner mterm/proot dari app-data di device ini
+        // (domain targetSdk>=34 di-hardening: denied execute_no_trans).
+        disable += "ExpiredTargetSdkVersion"
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
