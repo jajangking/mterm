@@ -30,17 +30,19 @@ object MtermBootstrap {
         }
 
         val sh = File(bin, "sh")
+        val home = File(base, "home")
         if (!sh.exists()) {
             sh.writeText(
                 "#!/system/bin/sh\n" +
                     "export PATH=$bin:/system/bin:/system/xbin:/sbin:\$PATH\n" +
                     "export LD_LIBRARY_PATH=$lib:\$LD_LIBRARY_PATH\n" +
-                    "export HOME=\"\$EXTERNAL_STORAGE\"/mterm\n" +
-                    "mkdir -p \"$HOME\"\n" +
+                    "export HOME=$home\n" +
+                    "mkdir -p \"$home\"\n" +
                     "exec /system/bin/sh \"\$@\"\n"
             )
             sh.setExecutable(true)
         }
+        home.mkdirs()
         return sh.path
     }
 
