@@ -6,7 +6,7 @@
 //! supaya fitur ini jalan di dalam app.
 
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use serde_json::json;
@@ -91,10 +91,11 @@ fn curl(url: &str, out: Option<&Path>) -> io::Result<Vec<u8>> {
         }
     }
     let agent = ureq::Agent::config_builder()
-        .timeout(std::time::Duration::from_secs(300))
-        .redirects(10)
+        .timeout_global(Some(std::time::Duration::from_secs(300)))
+        .max_redirects(10)
         .user_agent(format!("mterm/{}", env!("CARGO_PKG_VERSION")))
-        .build();
+        .build()
+        .new_agent();
     let resp = agent
         .get(url)
         .call()
