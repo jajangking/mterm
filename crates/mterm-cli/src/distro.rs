@@ -373,8 +373,25 @@ fn find_loader(rootfs: &Path) -> io::Result<PathBuf> {
     ))
 }
 
+/// Path absolut biner `proot` (resolve via PATH host SEKARANG, lalu dipakai
+/// dengan `.env("PATH", <guest>)` — kalau Command::new("proot") + env PATH
+/// guest, Rust mencari `proot` di PATH guest → ENOENT).
+fn proot_bin() -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let cand = dir.join("proot");
+        if cand.is_file() {
+            return Some(cand);
+        }
+    }
+    None
+}
+
 fn proot_available() -> bool {
-    std::process::Command::new("proot")
+    let Some(bin) = proot_bin() else {
+        return false;
+    };
+    std::process::Command::new(bin)
         .arg("--help")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -412,6 +429,12 @@ fn cmd_login(name: &str, args: &[String]) -> io::Result<()> {
         }
         _ => {}
     }
+    let Some(proot) = proot_bin() else {
+        return Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        "butuh `proot` untuk login (Termux: pkg install proot)",
+    ));
+    };
     if !proot_available() {
         return Err(io::Error::other(
             "butuh `proot` untuk login (Termux: pkg install proot)",
@@ -420,7 +443,7 @@ fn cmd_login(name: &str, args: &[String]) -> io::Result<()> {
 
     let term = std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".into());
     let loader = find_loader(&rootfs)?;
-    let mut cmd = std::process::Command::new("proot");
+    let mut cmd = std::process::Command::new(&proot);
     cmd.arg("-0") // fake root
         .arg("-r")
         .arg(&rootfs)
