@@ -9,6 +9,7 @@ import android.text.TextWatcher
 import android.view.KeyEvent
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
+import java.io.File
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -137,6 +138,32 @@ class MainActivity : ComponentActivity() {
                     if (t != null) {
                         t.session.write(bytes)
                         android.util.Log.i("mterm", "test-hook: ESC[?1006h ke engine (write)")
+                    }
+                }
+                // Debug hook (dev): --es mterm_debug_cmd "<shell>"
+                // jalankan command di domain app asli kemudian simpan
+                // stdout+stderr ke files/mterm/debug.out (baca via run-as).
+                val dbgCmd = intent.getStringExtra("mterm_debug_cmd")
+                if (dbgCmd != null) {
+                    val out = File(ctx.filesDir, "mterm/debug.out")
+                    try {
+                        val pb = ProcessBuilder("/system/bin/sh", "-c", dbgCmd)
+                        val base = File(ctx.filesDir, "mterm")
+                        pb.environment()["PATH"] = File(base, "bin").path + ":/system/bin:/system/xbin:$PATH"
+                        pb.environment()["LD_LIBRARY_PATH"] = File(base, "lib").path
+                        pb.environment()["HOME"] = File(base, "home").path
+                        pb.environment()["TMPDIR"] = File(base, "home/tmp").path
+                        pb.redirectErrorStream(true)
+                        val p = pb.start()
+                        val txt = p.inputStream.bufferedReader().readText()
+                        val code = p.waitFor()
+                        File(base, "home").mkdirs()
+                        File(base, "home/tmp").mkdirs()
+                        out.writeText("cmd=$dbgCmd\nrc=$code\n---\n$txt")
+                        android.util.Log.i("mterm", "debug-cmd rc=$code -> ${out.path}")
+                    } catch (e: Exception) {
+                        out.writeText("cmd=$dbgCmd\nerr=${e}\n")
+                        android.util.Log.e("mterm", "debug-cmd err", e)
                     }
                 }
             }

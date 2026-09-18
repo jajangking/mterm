@@ -443,6 +443,9 @@ fn cmd_login(name: &str, args: &[String]) -> io::Result<()> {
 
     let term = std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".into());
     let loader = find_loader(&rootfs)?;
+    let mut tmp = tmp_dir();
+    let _ = fs::create_dir_all(&tmp);
+    tmp = fs::canonicalize(&tmp).unwrap_or(tmp);
     let mut cmd = std::process::Command::new(&proot);
     cmd.arg("-0") // fake root
         .arg("-r")
@@ -473,6 +476,10 @@ fn cmd_login(name: &str, args: &[String]) -> io::Result<()> {
             "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         )
         .env("USER", "root")
+        // proot biner build Termux punya default tmp dir hardcoded
+        // /data/data/com.termux/files/usr/tmp — tak ada di sandbox app →
+        // proot gagal f2fs probe & exec pertama. Arahkan ke tmp app.
+        .env("PROOT_TMP_DIR", &tmp)
         .env_remove("LD_PRELOAD");
     // warisi stdio → shell interaktif mengambil alih terminal saat ini
     let status = cmd.status()?;
