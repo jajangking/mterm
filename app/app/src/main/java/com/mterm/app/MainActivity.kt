@@ -149,7 +149,10 @@ class MainActivity : ComponentActivity() {
                     try {
                         val pb = ProcessBuilder("/system/bin/sh", "-c", dbgCmd)
                         val base = File(ctx.filesDir, "mterm")
-                        pb.environment()["PATH"] = File(base, "bin").path + ":/system/bin:/system/xbin:$PATH"
+                        val oldPath = pb.environment().getOrDefault("PATH", "")
+                        pb.environment()["PATH"] =
+                            File(base, "bin").path + ":/system/bin:/system/xbin:" +
+                                (if (oldPath.isEmpty()) "" else oldPath + ":")
                         pb.environment()["LD_LIBRARY_PATH"] = File(base, "lib").path
                         pb.environment()["HOME"] = File(base, "home").path
                         pb.environment()["TMPDIR"] = File(base, "home/tmp").path
